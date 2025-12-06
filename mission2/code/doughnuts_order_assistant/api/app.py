@@ -21,99 +21,22 @@ _worker_task: asyncio.Task | None = None
 
 
 def _create_worker_config() -> RTCDemoConfig:
-    """ワーカー用の設定を作成する。"""
-    from lerobot.configs.policies import PreTrainedConfig
-    from lerobot.configs.types import RTCAttentionSchedule
-    from lerobot.policies.rtc.configuration_rtc import RTCConfig
-    from lerobot.robots import RobotConfig
-    from lerobot.utils.import_utils import register_third_party_devices
-
-    register_third_party_devices()
-
-    # Policy config
-    policy = PreTrainedConfig.from_pretrained("masato-ka/smolvla-donuts-shop-v1")
-    policy.pretrained_path = "masato-ka/smolvla-donuts-shop-v1"
-    policy.device = "cuda"
-    policy.input_features = {"observation.state": {"type": "STATE", "shape": [12]}}
-    policy.output_features = {"action": {"type": "ACTION", "shape": [12]}}
-
-    # RTC config
-    rtc = RTCConfig(
-        execution_horizon=12,
-        max_guidance_weight=10.0,
-        prefix_attention_schedule=RTCAttentionSchedule.EXP,
-    )
-
-    # Robot config を直接構築（draccusを介さない）
-    robot = RobotConfig(
-        type="bi_so101_follower",
-        id="bi_robot",
-        left_arm_port="/dev/ttyACM3",
-        right_arm_port="/dev/ttyACM2",
-        cameras={
-            "front": {
-                "type": "opencv",
-                "index_or_path": "/dev/video4",
-                "width": 640,
-                "height": 480,
-                "fps": 30,
-            },
-            "back": {
-                "type": "opencv",
-                "index_or_path": "/dev/video6",
-                "width": 640,
-                "height": 480,
-                "fps": 30,
-            },
-        },
-    )
-
-    # RTCDemoConfigを直接構築（policyが既に設定されているので、__post_init__でスキップされる）
-    cfg = RTCDemoConfig(
-        policy=policy,
-        robot=robot,
-        rtc=rtc,
-        duration=120.0,
-        fps=30.0,
-        device="cuda",
-        use_torch_compile=False,
-    )
-    return cfg
+    """(非使用) ワーカーは外部プロセスで起動する前提に変更。"""
+    raise RuntimeError("Worker must be launched externally (see worker_main.py).")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """FastAPIのlifespanイベント: ワーカーを起動・停止する。"""
-    global _worker, _worker_task, _state_manager, _order_service
+    """FastAPIのlifespan: ワーカーは外部プロセスで起動する前提なのでここでは起動しない。"""
+    global _order_service, _state_manager
 
-    # Startup: ワーカーを起動
-    logger.info("[APP] Starting robot worker...")
+    logger.info(
+        "[APP] Skipping internal worker startup; start worker_main.py separately."
+    )
     _state_manager = OrderStateManager()
-    cfg = _create_worker_config()
-    _worker = PersistentRobotWorker(cfg, _state_manager)
-
-    # OrderServiceを初期化（state_managerを共有）
     _order_service = OrderService(state_manager=_state_manager)
 
-    # ワーカーを別タスクで実行
-    _worker_task = asyncio.create_task(_worker.run())
-
-    # ワーカーが初期化されるまで少し待つ
-    await asyncio.sleep(2.0)
-
-    logger.info("[APP] Robot worker started")
-
     yield
-
-    # Shutdown: ワーカーを停止
-    logger.info("[APP] Stopping robot worker...")
-    if _worker_task:
-        _worker_task.cancel()
-        try:
-            await _worker_task
-        except asyncio.CancelledError:
-            pass
-    logger.info("[APP] Robot worker stopped")
 
 
 app = FastAPI(title="Doughnuts Order Assistant Gateway", lifespan=lifespan)
