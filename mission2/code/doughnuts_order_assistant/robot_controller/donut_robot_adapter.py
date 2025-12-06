@@ -100,11 +100,93 @@ class SimulationDonutRobotAdapter:
 
 
 class LerobotDonutRobotAdapter(SimulationDonutRobotAdapter):
-    """Extension point to hook into `vla_controller_rtc.py` and the real robot.
+    """Adapter that runs `vla_controller_rtc.py` as a subprocess per order.
 
-    For now this behaves the same as the simulation adapter.
-    Real SmolVLA + robot integration can be implemented later.
+    NOTE: This still loads the model per order (because `vla_controller_rtc.py`
+    is a CLI). It is structured so we can later replace the subprocess call
+    with a long-running worker that keeps the model in memory.
     """
 
-    # TODO: Implement real robot control using `vla_controller_rtc.py`.
-    pass
+    def __init__(self, state_manager: OrderStateManager) -> None:
+        super().__init__(state_manager)
+
+        # These values are the ones shared earlier for the demo run.
+        self.policy_path = "masato-ka/smolvla-donuts-shop-v1"
+        self.robot_type = "bi_so101_follower"
+        self.robot_id = "bi_robot"
+        self.left_arm_port = "/dev/ttyACM3"
+        self.right_arm_port = "/dev/ttyACM2"
+        self.cameras = (
+            "{ front: {type: opencv, index_or_path: /dev/video4 , width: 640, height: 480, fps: 30}, "
+            "back:{type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}"
+        )
+
+    async def _run_policy_subprocess(self, task_prompt: str) -> int:
+        cmd = [
+            sys.executable,
+            "-m",
+            "robot_controller.vla_controller_rtc",
+            f"--policy.path={self.policy_path}",
+            "--policy.device=cuda",
+            "--rtc.enabled=true",
+            "--rtc.execution_horizon=12",
+            "--rtc.max_guidance_weight=10.0",
+            "--fps=30",
+            f"--robot.type={self.robot_type}",
+            f"--robot.id={self.robot_id}",
+            f"--robot.left_arm_port={self.left_arm_port}",
+            f"--robot.right_arm_port={self.right_arm_port}",
+            f"--robot.cameras={self.cameras}",
+            f"--task={task_prompt}",
+            "--duration=120",
+            '--policy.input_features={"observation.state": {"type": "STATE", "shape": [12]}}',
+            '--policy.output_features={"action": {"type": "ACTION", "shape": [12]}}',
+        ]
+
+        proc = await asyncio.create_subprocess_exec(*cmd)
+        return await proc.wait()
+
+    async def run_order(self, request_id: str, flavor: str | None = None) -> None:  # type: ignore[override]
+        """Run order with real robot subprocess and R-key gating between phases."""
+
+        flavor_str = flavor or "chocolate"
+        task_prompt = (
+            "Please take the chocolate donuts and into the box."
+            if flavor_str == "chocolate"
+            else "Please take the strawberry donuts and into the box."
+        )
+
+        logger.info(
+            "[LerobotDonutRobotAdapter] start order %s flavor=%s",
+            request_id,
+            flavor_str,
+        )
+
+        # Phase 1 label
+        await self._state_manager.set_phase(
+            request_id,
+            OrderPhase.PUTTING_DONUT,
+            f"Executing policy for {flavor_str} donuts (pick & place)...",
+            progress=0.5,
+        )
+
+        # Run the SmolVLA policy as a subprocess (covers both picking and closing)
+        rc = await self._run_policy_subprocess(task_prompt)
+
+        if rc != 0:
+            msg = f"vla_controller_rtc exited with code {rc}"
+            logger.error("[LerobotDonutRobotAdapter] %s", msg)
+            await self._state_manager.mark_error(request_id, msg)
+            return
+
+        # Phase 2 label (lid closing) — we still gate by R for operator confirmation.
+        await self._state_manager.set_phase(
+            request_id,
+            OrderPhase.CLOSING_LID,
+            "Policy finished. Confirm by pressing 'R' to mark completion.",
+            progress=0.9,
+        )
+        await _wait_for_r("Press 'R' to mark the order as completed.")
+
+        await self._state_manager.mark_completed(request_id)
+        logger.info("[LerobotDonutRobotAdapter] completed order %s", request_id)

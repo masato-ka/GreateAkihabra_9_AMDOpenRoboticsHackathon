@@ -3,20 +3,20 @@ from __future__ import annotations
 import asyncio
 
 from api.schemas import Flavor
-from robot_controller.donut_robot_adapter import SimulationDonutRobotAdapter
+from robot_controller.donut_robot_adapter import LerobotDonutRobotAdapter
 from state_controller.machine import OrderStateManager
 
 
 class OrderService:
-    """注文作成・キャンセルとロボット動作の橋渡しを行うサービス。"""
+    """Bridges API requests to robot execution and state updates."""
 
     def __init__(
         self,
         state_manager: OrderStateManager | None = None,
-        robot_adapter: SimulationDonutRobotAdapter | None = None,
+        robot_adapter: LerobotDonutRobotAdapter | None = None,
     ) -> None:
         self._state_manager = state_manager or OrderStateManager()
-        self._robot_adapter = robot_adapter or SimulationDonutRobotAdapter(
+        self._robot_adapter = robot_adapter or LerobotDonutRobotAdapter(
             self._state_manager
         )
 
@@ -25,16 +25,16 @@ class OrderService:
         return self._state_manager
 
     async def create_order(self, flavor: Flavor) -> str:
-        """注文を作成し、ロボット動作をバックグラウンドで開始する。"""
+        """Create an order and start robot execution in background."""
 
         state = await self._state_manager.create_order(flavor=flavor)
 
-        # ロボット動作はバックグラウンドタスクとして実行
-        asyncio.create_task(self._robot_adapter.run_order(state.request_id))
+        # Run robot task in background
+        asyncio.create_task(self._robot_adapter.run_order(state.request_id, flavor))
         return state.request_id
 
     async def cancel_order(self, request_id: str) -> bool:
-        """注文をキャンセルし、ロボットにも停止を伝える。"""
+        """Cancel an order and notify the robot adapter."""
 
         state = self._state_manager.get_order(request_id)
         if state is None:
