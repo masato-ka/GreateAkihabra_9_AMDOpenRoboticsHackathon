@@ -22,6 +22,8 @@ _worker_task: asyncio.Task | None = None
 
 def _create_worker_config() -> RTCDemoConfig:
     """ワーカー用の設定を作成する。"""
+    from types import SimpleNamespace
+
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import RTCAttentionSchedule
     from lerobot.policies.rtc.configuration_rtc import RTCConfig
@@ -44,8 +46,8 @@ def _create_worker_config() -> RTCDemoConfig:
         prefix_attention_schedule=RTCAttentionSchedule.EXP,
     )
 
-    # Robot configを直接構築（draccusを使わずに手動で組み立てる）
-    robot = RobotConfig(
+    # Robot config を SimpleNamespace で手動構築（RobotConfig __init__ が厳しいため）
+    robot = SimpleNamespace(
         type="bi_so101_follower",
         id="bi_robot",
         left_arm_port="/dev/ttyACM3",
