@@ -284,10 +284,11 @@ class PersistentRobotWorker:
 
         try:
             # Phase 1: Put doughnuts into the box
+            # Note: Different prompt formats for chocolate and strawberry
             task_phase1 = (
                 "Please take the chocolate donuts and into the box."
                 if flavor == "chocolate"
-                else "Please take the strawberry donuts and into the box."
+                else "Pick up the strawberry donut and place it in the box."
             )
 
             await self._state_manager.set_phase(
