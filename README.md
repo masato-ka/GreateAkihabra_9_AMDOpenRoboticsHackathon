@@ -26,9 +26,15 @@ AMD_Robotics_Hackathon_2025_ProjectTemplate-main/
 ├── README.md
 ├── mission1
 │   ├── code
-│   │   └── <code and script>
+│   │   └── training
+│   │         └── training-models-on-rocm.ipynb
+│   └── video
+│       └── Team9_mission1.mp4
 │   └── wandb
-│       └── <latest run directory copied from wandb of your training job>
+│       └── latest-run
+│       └── run-20251205_131040-i44p8ftn
+│       └── debug.log
+│       └── debug-internal.log
 └── mission2
     ├── code
     │   └── <code and script>
