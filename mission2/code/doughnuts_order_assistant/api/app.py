@@ -2,14 +2,10 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from services.orders import OrderService
+from state_controller.events import iter_events
 
-from doughnuts_order_assistant.api.schemas import (
-    CancelResponse,
-    OrderCreated,
-    OrderRequest,
-)
-from doughnuts_order_assistant.services.orders import OrderService
-from doughnuts_order_assistant.state_controller.events import iter_events
+from .schemas import CancelResponse, OrderCreated, OrderRequest
 
 app = FastAPI(title="Doughnuts Order Assistant Gateway")
 
@@ -61,5 +57,3 @@ async def sse_events(request: Request) -> StreamingResponse:
 
 
 __all__ = ["app"]
-
-

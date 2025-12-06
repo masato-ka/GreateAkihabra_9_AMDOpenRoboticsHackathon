@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from doughnuts_order_assistant.state_controller.machine import OrderStateManager
-from doughnuts_order_assistant.state_controller.states import OrderPhase
+from state_controller.machine import OrderStateManager
+from state_controller.states import OrderPhase
 
 logger = logging.getLogger(__name__)
 
@@ -62,5 +62,3 @@ class LerobotDonutRobotAdapter(SimulationDonutRobotAdapter):
     # ここで vla_controller_rtc.py を呼び出すロジックを実装していく。
     # ひとまずはシミュレーションと同じ挙動にしておく。
     pass
-
-

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Optional
 
-from doughnuts_order_assistant.api.schemas import Flavor
+from api.schemas import Flavor
 
 
 class OrderPhase(Enum):
@@ -32,5 +32,3 @@ class OrderState:
     error_message: Optional[str] = None
     # 追加メタ情報が必要になったらここに足す
     metadata: dict = field(default_factory=dict)
-
-

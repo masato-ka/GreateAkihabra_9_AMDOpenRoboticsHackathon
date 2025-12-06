@@ -4,7 +4,7 @@ import asyncio
 import json
 from typing import AsyncIterator
 
-from doughnuts_order_assistant.api.schemas import GatewayEvent
+from api.schemas import GatewayEvent
 
 # シンプルに「Chat Backend からの1接続」を想定したイベントキュー。
 _event_queue: asyncio.Queue[GatewayEvent] = asyncio.Queue()
