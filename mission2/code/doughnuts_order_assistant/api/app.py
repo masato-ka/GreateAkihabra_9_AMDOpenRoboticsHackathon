@@ -22,10 +22,6 @@ _worker_task: asyncio.Task | None = None
 
 def _create_worker_config() -> RTCDemoConfig:
     """ワーカー用の設定を作成する。"""
-    import sys
-    from dataclasses import field
-
-    import draccus
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import RTCAttentionSchedule
     from lerobot.policies.rtc.configuration_rtc import RTCConfig
@@ -48,29 +44,29 @@ def _create_worker_config() -> RTCDemoConfig:
         prefix_attention_schedule=RTCAttentionSchedule.EXP,
     )
 
-    # Robot configをdraccusで構築（RTCDemoConfig全体ではなく、robotフィールドだけ）
-    # RTCDemoConfigのrobotフィールドはRobotConfig型なので、RTCDemoConfigを一時的に構築してrobotを取得
-    original_argv = sys.argv.copy()
-    robot: RobotConfig | None = None
-    try:
-        # sys.argvを完全に置き換える
-        sys.argv = [
-            "dummy",
-            "--policy.path=masato-ka/smolvla-donuts-shop-v1",
-            "--robot.type=bi_so101_follower",
-            "--robot.id=bi_robot",
-            "--robot.left_arm_port=/dev/ttyACM3",
-            "--robot.right_arm_port=/dev/ttyACM2",
-            "--robot.cameras={front: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}, back: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}",
-        ]
-        # RTCDemoConfig全体を構築してrobotフィールドを取得
-        temp_cfg = draccus.parse(config_class=RTCDemoConfig, args=sys.argv[1:])
-        robot = temp_cfg.robot
-    finally:
-        sys.argv = original_argv
-
-    if robot is None:
-        raise ValueError("Failed to create robot config")
+    # Robot configを直接構築（draccusを使わずに手動で組み立てる）
+    robot = RobotConfig(
+        type="bi_so101_follower",
+        id="bi_robot",
+        left_arm_port="/dev/ttyACM3",
+        right_arm_port="/dev/ttyACM2",
+        cameras={
+            "front": {
+                "type": "opencv",
+                "index_or_path": "/dev/video4",
+                "width": 640,
+                "height": 480,
+                "fps": 30,
+            },
+            "back": {
+                "type": "opencv",
+                "index_or_path": "/dev/video6",
+                "width": 640,
+                "height": 480,
+                "fps": 30,
+            },
+        },
+    )
 
     # RTCDemoConfigを直接構築（policyが既に設定されているので、__post_init__でスキップされる）
     cfg = RTCDemoConfig(
