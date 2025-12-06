@@ -71,15 +71,51 @@ class PersistentRobotWorker:
         self._r_key_device: evdev.InputDevice | None = None
 
     def _find_keyboard_device(self) -> Optional[evdev.InputDevice]:
-        """Find the first input device that reports EV_KEY events (likely a keyboard)."""
+        """Find the input device for R key detection.
+        
+        Priority:
+        1. Environment variable R_KEY_EVENT (set by worker_cli.py)
+        2. First device with EV_KEY capability
+        """
+        # Check environment variable first
+        env_device = os.environ.get("R_KEY_EVENT")
+        if env_device:
+            try:
+                dev = evdev.InputDevice(env_device)
+                caps = dev.capabilities().get(ecodes.EV_KEY, [])
+                if caps:
+                    logger.info(
+                        "[WORKER] Using input device for R detection from R_KEY_EVENT: %s (%s)",
+                        env_device,
+                        dev.name,
+                    )
+                    return dev
+                else:
+                    logger.warning(
+                        "[WORKER] Device from R_KEY_EVENT has no EV_KEY capability: %s",
+                        env_device,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[WORKER] Failed to open device from R_KEY_EVENT=%s: %s",
+                    env_device,
+                    e,
+                )
+
+        # Fallback: find first device with EV_KEY
         for path in evdev.list_devices():
             try:
                 dev = evdev.InputDevice(path)
                 caps = dev.capabilities().get(ecodes.EV_KEY, [])
                 if caps:
-                    logger.info("Using input device for R detection: %s", path)
+                    logger.info(
+                        "[WORKER] Using input device for R detection: %s (%s)",
+                        path,
+                        dev.name,
+                    )
                     return dev
-            except Exception:
+            except Exception as e:
+                logger.debug("[WORKER] Failed to open device %s: %s", path, e)
                 continue
         return None
 
@@ -202,7 +238,7 @@ class PersistentRobotWorker:
                 )
                 return False
 
-        last_press = 0.0
+        last_press = [0.0]  # Use list to allow modification in nested function
         loop = asyncio.get_event_loop()
 
         try:
@@ -217,9 +253,9 @@ class PersistentRobotWorker:
                     continue
 
                 now = loop.time()
-                if now - last_press < _DEBOUNCE_WINDOW_SEC:
+                if now - last_press[0] < _DEBOUNCE_WINDOW_SEC:
                     continue
-                last_press = now
+                last_press[0] = now
                 logger.info("[WORKER] R key detected")
                 return True
         except Exception as e:
@@ -252,33 +288,77 @@ class PersistentRobotWorker:
                 f"[WORKER] Starting Phase 1 for order {request_id} with task: {task_phase1}"
             )
 
-            # Run episode 1 in a thread pool to avoid blocking
+            # Run episode 1 and R-key detection in parallel
             loop = asyncio.get_event_loop()
             episode_shutdown = Event()
+
+            async def run_episode_async():
+                """Run episode in executor and return result."""
+                return await loop.run_in_executor(
+                    None,
+                    run_episode,
+                    self._policy,
+                    self._robot_wrapper,
+                    self._robot_observation_processor,
+                    self._robot_action_processor,
+                    episode_shutdown,
+                    self._cfg,
+                    task_phase1,
+                    self._cfg.duration,
+                    self._current_get_actions_thread,
+                    self._current_actor_thread,
+                )
+
+            async def wait_for_r_and_shutdown():
+                """Wait for R key and set shutdown event."""
+                logger.info(
+                    "[WORKER] Waiting for R key to stop Phase 1 and proceed to Phase 2..."
+                )
+                r_detected = await self._wait_for_r_key_async()
+                if r_detected:
+                    logger.info(
+                        "[WORKER] R key detected during Phase 1, stopping episode..."
+                    )
+                    episode_shutdown.set()
+                    return True
+                return False
+
+            # Run episode and R-key detection in parallel
+            episode_task = asyncio.create_task(run_episode_async())
+            r_key_task = asyncio.create_task(wait_for_r_and_shutdown())
+
+            # Wait for either episode to complete or R key to be pressed
+            done, pending = await asyncio.wait(
+                [episode_task, r_key_task], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel the pending task
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            # Get episode result
             (
                 self._current_get_actions_thread,
                 self._current_actor_thread,
                 self._current_action_queue,
-            ) = await loop.run_in_executor(
-                None,
-                run_episode,
-                self._policy,
-                self._robot_wrapper,
-                self._robot_observation_processor,
-                self._robot_action_processor,
-                episode_shutdown,
-                self._cfg,
-                task_phase1,
-                self._cfg.duration,
-                self._current_get_actions_thread,
-                self._current_actor_thread,
-            )
+            ) = await episode_task
 
-            # Wait for R key to proceed to Phase 2
-            logger.info(
-                f"[WORKER] Phase 1 completed. Waiting for R key to start Phase 2..."
-            )
-            r_detected = await self._wait_for_r_key_async()
+            # Check if R key was detected
+            r_detected = False
+            if r_key_task in done:
+                r_detected = await r_key_task
+
+            if not r_detected:
+                # R key was not pressed during episode, wait for it now
+                logger.info(
+                    "[WORKER] Phase 1 completed. Waiting for R key to start Phase 2..."
+                )
+                r_detected = await self._wait_for_r_key_async()
+
             if not r_detected or self._shutdown_event.is_set():
                 logger.warning("[WORKER] R key not detected or shutdown requested")
                 await self._state_manager.mark_error(
@@ -302,33 +382,77 @@ class PersistentRobotWorker:
                 f"[WORKER] Starting Phase 2 for order {request_id} with task: {task_phase2}"
             )
 
-            # Run episode 2 in a thread pool to avoid blocking
+            # Run episode 2 and R-key detection in parallel
             loop = asyncio.get_event_loop()
             episode_shutdown = Event()
+
+            async def run_episode_async():
+                """Run episode in executor and return result."""
+                return await loop.run_in_executor(
+                    None,
+                    run_episode,
+                    self._policy,
+                    self._robot_wrapper,
+                    self._robot_observation_processor,
+                    self._robot_action_processor,
+                    episode_shutdown,
+                    self._cfg,
+                    task_phase2,
+                    self._cfg.duration,
+                    self._current_get_actions_thread,
+                    self._current_actor_thread,
+                )
+
+            async def wait_for_r_and_shutdown():
+                """Wait for R key and set shutdown event."""
+                logger.info(
+                    "[WORKER] Waiting for R key to stop Phase 2 and mark as completed..."
+                )
+                r_detected = await self._wait_for_r_key_async()
+                if r_detected:
+                    logger.info(
+                        "[WORKER] R key detected during Phase 2, stopping episode..."
+                    )
+                    episode_shutdown.set()
+                    return True
+                return False
+
+            # Run episode and R-key detection in parallel
+            episode_task = asyncio.create_task(run_episode_async())
+            r_key_task = asyncio.create_task(wait_for_r_and_shutdown())
+
+            # Wait for either episode to complete or R key to be pressed
+            done, pending = await asyncio.wait(
+                [episode_task, r_key_task], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Cancel the pending task
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            # Get episode result
             (
                 self._current_get_actions_thread,
                 self._current_actor_thread,
                 self._current_action_queue,
-            ) = await loop.run_in_executor(
-                None,
-                run_episode,
-                self._policy,
-                self._robot_wrapper,
-                self._robot_observation_processor,
-                self._robot_action_processor,
-                episode_shutdown,
-                self._cfg,
-                task_phase2,
-                self._cfg.duration,
-                self._current_get_actions_thread,
-                self._current_actor_thread,
-            )
+            ) = await episode_task
 
-            # Wait for R key to mark as completed
-            logger.info(
-                f"[WORKER] Phase 2 completed. Waiting for R key to mark as completed..."
-            )
-            r_detected = await self._wait_for_r_key_async()
+            # Check if R key was detected
+            r_detected = False
+            if r_key_task in done:
+                r_detected = await r_key_task
+
+            if not r_detected:
+                # R key was not pressed during episode, wait for it now
+                logger.info(
+                    "[WORKER] Phase 2 completed. Waiting for R key to mark as completed..."
+                )
+                r_detected = await self._wait_for_r_key_async()
+
             if not r_detected or self._shutdown_event.is_set():
                 logger.warning("[WORKER] R key not detected or shutdown requested")
                 await self._state_manager.mark_error(
@@ -440,6 +564,20 @@ class PersistentRobotWorker:
             except Exception as e:
                 logger.exception("[WORKER] Failed to initialize model/robot: %s", e)
                 return
+
+            # Initialize R key device and log which device is being used
+            logger.info("[WORKER] Initializing R key detection device...")
+            self._r_key_device = self._find_keyboard_device()
+            if self._r_key_device is None:
+                logger.error(
+                    "[WORKER] No keyboard-like input device found; R key detection will not work."
+                )
+            else:
+                logger.info(
+                    "[WORKER] R key detection ready. Device: %s (%s)",
+                    self._r_key_device.path,
+                    self._r_key_device.name,
+                )
 
             # Start socket server
             await self._socket_server_loop()
