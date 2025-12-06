@@ -15,7 +15,16 @@ from robot_controller.vla_controller_rtc import RTCDemoConfig
 from robot_controller.worker import PersistentRobotWorker
 from state_controller.machine import OrderStateManager
 
-logging.basicConfig(level=logging.INFO)
+# ルートロガーを強制的にINFOレベルに設定（他のライブラリの設定を上書き）
+_root = logging.getLogger()
+_root.handlers.clear()  # 既存ハンドラを全部消す
+_root.setLevel(logging.INFO)
+_handler = logging.StreamHandler()
+_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+)
+_root.addHandler(_handler)
+
 logger = logging.getLogger(__name__)
 
 
