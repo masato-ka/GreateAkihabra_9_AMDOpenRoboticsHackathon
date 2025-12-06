@@ -6,8 +6,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
+# Import RTCDemoConfig after registering third-party devices
+# This ensures bi_so101_follower is registered before RTCDemoConfig is parsed
+import robot_controller.vla_controller_rtc as vla_module
 from lerobot.configs import parser
-from robot_controller.vla_controller_rtc import RTCDemoConfig
+from lerobot.utils.import_utils import register_third_party_devices
 from robot_controller.worker import PersistentRobotWorker
 from state_controller.machine import OrderStateManager
 
@@ -16,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @parser.wrap()
-def main(cfg: RTCDemoConfig) -> None:
+def main_cli(cfg: vla_module.RTCDemoConfig) -> None:
     """ワーカーを起動する。"""
     logger.info("[WORKER_MAIN] Starting persistent robot worker...")
     logger.info(f"[WORKER_MAIN] Policy: {cfg.policy.pretrained_path}")
@@ -36,5 +39,6 @@ def main(cfg: RTCDemoConfig) -> None:
 
 
 if __name__ == "__main__":
-    main()
-
+    # Register third-party devices (e.g., bi_so101_follower) before parsing config
+    register_third_party_devices()
+    main_cli()
