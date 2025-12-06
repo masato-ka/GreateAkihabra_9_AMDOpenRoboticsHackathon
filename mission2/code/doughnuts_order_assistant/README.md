@@ -53,10 +53,27 @@ Frontend (chat app, etc.) uses HTTP + SSE.
 ### Run (dev)
 
 **1. Start the persistent worker** (in a separate terminal):
+
+**Option A: Using the `worker` command (after `uv sync` on Linux)**:
 ```bash
 cd mission2/code/doughnuts_order_assistant
-uv sync           # install deps from pyproject/uv.lock
+uv sync  # Run this once on Linux to register the script
+uv run worker  # Uses default arguments
+# Or override specific arguments:
+uv run worker --duration=60 --device=cpu
+```
 
+**Option B: Using the module directly (works everywhere, recommended)**:
+```bash
+cd mission2/code/doughnuts_order_assistant
+uv run python -m robot_controller.worker_cli  # Uses default arguments
+# Or override specific arguments:
+uv run python -m robot_controller.worker_cli --duration=60 --device=cpu
+```
+
+**Option C: Using worker_main with full arguments**:
+```bash
+cd mission2/code/doughnuts_order_assistant
 uv run python -m robot_controller.worker_main \
   --policy.path=masato-ka/smolvla-donuts-shop-v1 \
   --policy.device=cuda \

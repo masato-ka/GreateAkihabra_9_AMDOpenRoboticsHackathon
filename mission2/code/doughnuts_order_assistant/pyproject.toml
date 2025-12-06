@@ -16,3 +16,6 @@ dependencies = [
 
 [project.scripts]
 worker = "robot_controller.worker_cli:main"
+
+[tool.uv]
+package = true
