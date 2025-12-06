@@ -9,7 +9,11 @@ from fastapi.responses import StreamingResponse
 from robot_controller.vla_controller_rtc import RTCDemoConfig
 from robot_controller.worker import PersistentRobotWorker
 from services.orders import OrderService
-from state_controller.events import iter_events
+from state_controller.events import (
+    iter_events,
+    start_event_socket_server,
+    stop_event_socket_server,
+)
 from state_controller.machine import OrderStateManager
 
 from .schemas import CancelResponse, OrderCreated, OrderRequest
@@ -35,8 +39,16 @@ async def lifespan(app: FastAPI):
     )
     _state_manager = OrderStateManager()
     _order_service = OrderService(state_manager=_state_manager)
+    
+    # Start Unix socket server to receive events from worker process
+    logger.info("[APP] Starting event socket server...")
+    await start_event_socket_server()
 
     yield
+    
+    # Stop Unix socket server
+    logger.info("[APP] Stopping event socket server...")
+    await stop_event_socket_server()
 
 
 app = FastAPI(title="Doughnuts Order Assistant Gateway", lifespan=lifespan)
