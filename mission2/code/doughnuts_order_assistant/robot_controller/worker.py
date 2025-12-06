@@ -249,8 +249,32 @@ class PersistentRobotWorker:
             )
 
             logger.info(
-                f"[WORKER] Starting Phase 1 for order {request_id} with task: {task_phase1}"
+                f"[WORKER] Starting Phase 1 for order {request_id} with flavor: {flavor}, task: '{task_phase1}'"
             )
+
+            # Ensure previous threads are stopped before starting new episode
+            if (
+                self._current_get_actions_thread is not None
+                and self._current_get_actions_thread.is_alive()
+            ):
+                logger.info(
+                    "[WORKER] Stopping previous get_actions thread before Phase 1..."
+                )
+                # Create a temporary shutdown event to stop the old thread
+                old_shutdown = Event()
+                old_shutdown.set()
+                self._current_get_actions_thread.join(timeout=3.0)
+            if (
+                self._current_actor_thread is not None
+                and self._current_actor_thread.is_alive()
+            ):
+                logger.info("[WORKER] Stopping previous actor thread before Phase 1...")
+                old_shutdown = Event()
+                old_shutdown.set()
+                self._current_actor_thread.join(timeout=3.0)
+
+            # Small delay to ensure threads are fully stopped
+            await asyncio.sleep(0.5)
 
             # Run episode 1 and R-key detection in parallel
             loop = asyncio.get_event_loop()
@@ -258,6 +282,9 @@ class PersistentRobotWorker:
 
             async def run_episode_async():
                 """Run episode in executor and return result."""
+                logger.info(
+                    f"[WORKER] run_episode_async: Starting episode with task: '{task_phase1}'"
+                )
                 return await loop.run_in_executor(
                     None,
                     run_episode,
@@ -267,9 +294,9 @@ class PersistentRobotWorker:
                     self._robot_action_processor,
                     episode_shutdown,
                     self._cfg,
-                    task_phase1,
+                    task_phase1,  # This should be "Please take the strawberry donuts..."
                     self._cfg.duration,
-                    self._current_get_actions_thread,
+                    self._current_get_actions_thread,  # Pass existing threads to be stopped
                     self._current_actor_thread,
                 )
 
@@ -280,7 +307,9 @@ class PersistentRobotWorker:
                 )
                 r_detected = await self._wait_for_r_key_async()
                 if r_detected:
-                    logger.info("[WORKER] R key detected during Phase 1, stopping episode...")
+                    logger.info(
+                        "[WORKER] R key detected during Phase 1, stopping episode..."
+                    )
                     episode_shutdown.set()
                     return True
                 return False
@@ -349,8 +378,31 @@ class PersistentRobotWorker:
             )
 
             logger.info(
-                f"[WORKER] Starting Phase 2 for order {request_id} with task: {task_phase2}"
+                f"[WORKER] Starting Phase 2 for order {request_id} with task: '{task_phase2}'"
             )
+
+            # Ensure previous threads are stopped before starting new episode
+            if (
+                self._current_get_actions_thread is not None
+                and self._current_get_actions_thread.is_alive()
+            ):
+                logger.info(
+                    "[WORKER] Stopping previous get_actions thread before Phase 2..."
+                )
+                old_shutdown = Event()
+                old_shutdown.set()
+                self._current_get_actions_thread.join(timeout=3.0)
+            if (
+                self._current_actor_thread is not None
+                and self._current_actor_thread.is_alive()
+            ):
+                logger.info("[WORKER] Stopping previous actor thread before Phase 2...")
+                old_shutdown = Event()
+                old_shutdown.set()
+                self._current_actor_thread.join(timeout=3.0)
+
+            # Small delay to ensure threads are fully stopped
+            await asyncio.sleep(0.5)
 
             # Run episode 2 and R-key detection in parallel
             loop = asyncio.get_event_loop()
@@ -358,6 +410,9 @@ class PersistentRobotWorker:
 
             async def run_episode_async():
                 """Run episode in executor and return result."""
+                logger.info(
+                    f"[WORKER] run_episode_async: Starting episode with task: '{task_phase2}'"
+                )
                 return await loop.run_in_executor(
                     None,
                     run_episode,
@@ -367,9 +422,9 @@ class PersistentRobotWorker:
                     self._robot_action_processor,
                     episode_shutdown,
                     self._cfg,
-                    task_phase2,
+                    task_phase2,  # "Please close the box."
                     self._cfg.duration,
-                    self._current_get_actions_thread,
+                    self._current_get_actions_thread,  # Pass existing threads to be stopped
                     self._current_actor_thread,
                 )
 
@@ -380,7 +435,9 @@ class PersistentRobotWorker:
                 )
                 r_detected = await self._wait_for_r_key_async()
                 if r_detected:
-                    logger.info("[WORKER] R key detected during Phase 2, stopping episode...")
+                    logger.info(
+                        "[WORKER] R key detected during Phase 2, stopping episode..."
+                    )
                     episode_shutdown.set()
                     return True
                 return False

@@ -566,29 +566,29 @@ def run_episode(
     Returns:
         Tuple of (get_actions_thread, actor_thread, action_queue)
     """
-    # Stop existing threads if provided
+    # Stop existing threads if provided (ensure they are fully stopped)
     if get_actions_thread is not None and get_actions_thread.is_alive():
+        logger.info("[RUN_EPISODE] Stopping existing get_actions thread...")
         shutdown_event.set()
-        get_actions_thread.join(timeout=2.0)
+        get_actions_thread.join(timeout=5.0)
+        if get_actions_thread.is_alive():
+            logger.warning("[RUN_EPISODE] Existing get_actions thread did not stop in time")
     if actor_thread is not None and actor_thread.is_alive():
+        logger.info("[RUN_EPISODE] Stopping existing actor thread...")
         shutdown_event.set()
-        actor_thread.join(timeout=2.0)
+        actor_thread.join(timeout=5.0)
+        if actor_thread.is_alive():
+            logger.warning("[RUN_EPISODE] Existing actor thread did not stop in time")
 
     # Create new action queue and reset shutdown event
     action_queue = ActionQueue(cfg.rtc)
     shutdown_event.clear()
-
-    # Stop existing threads if provided
-    if get_actions_thread is not None and get_actions_thread.is_alive():
-        shutdown_event.set()
-        get_actions_thread.join(timeout=2.0)
-    if actor_thread is not None and actor_thread.is_alive():
-        shutdown_event.set()
-        actor_thread.join(timeout=2.0)
-
-    shutdown_event.clear()
+    
+    # Small delay to ensure threads are fully stopped
+    time.sleep(0.5)
 
     # Start chunk requester thread with task override
+    # Always create a new thread to ensure the task is updated
     get_actions_thread_new = Thread(
         target=get_actions,
         args=(
@@ -598,13 +598,13 @@ def run_episode(
             action_queue,
             shutdown_event,
             cfg,
-            task,  # task_override
+            task,  # task_override - this will be used instead of cfg.task
         ),
         daemon=True,
-        name="GetActions",
+        name=f"GetActions-{task[:20]}",  # Include task in thread name for debugging
     )
     get_actions_thread_new.start()
-    logger.info(f"[RUN_EPISODE] Started get actions thread with task: {task}")
+    logger.info(f"[RUN_EPISODE] Started NEW get actions thread with task: '{task}'")
 
     # Start action executor thread
     actor_thread_new = Thread(
