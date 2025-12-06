@@ -22,8 +22,9 @@ _worker_task: asyncio.Task | None = None
 
 def _create_worker_config() -> RTCDemoConfig:
     """ワーカー用の設定を作成する。"""
-    from types import SimpleNamespace
+    import sys
 
+    import draccus
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import RTCAttentionSchedule
     from lerobot.policies.rtc.configuration_rtc import RTCConfig
@@ -46,29 +47,25 @@ def _create_worker_config() -> RTCDemoConfig:
         prefix_attention_schedule=RTCAttentionSchedule.EXP,
     )
 
-    # Robot config を SimpleNamespace で手動構築（RobotConfig __init__ が厳しいため）
-    robot = SimpleNamespace(
-        type="bi_so101_follower",
-        id="bi_robot",
-        left_arm_port="/dev/ttyACM3",
-        right_arm_port="/dev/ttyACM2",
-        cameras={
-            "front": {
-                "type": "opencv",
-                "index_or_path": "/dev/video4",
-                "width": 640,
-                "height": 480,
-                "fps": 30,
-            },
-            "back": {
-                "type": "opencv",
-                "index_or_path": "/dev/video6",
-                "width": 640,
-                "height": 480,
-                "fps": 30,
-            },
-        },
-    )
+    # Robot config: draccus で RobotConfig をパースするが、uvicorn 引数を無視するため sys.argv を最小化
+    original_argv = sys.argv.copy()
+    try:
+        sys.argv = ["dummy"]
+        robot_cli_args = [
+            "--type",
+            "bi_so101_follower",
+            "--id",
+            "bi_robot",
+            "--left_arm_port",
+            "/dev/ttyACM3",
+            "--right_arm_port",
+            "/dev/ttyACM2",
+            "--cameras",
+            "{front: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}, back: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}",
+        ]
+        robot = draccus.parse(config_class=RobotConfig, args=robot_cli_args)
+    finally:
+        sys.argv = original_argv
 
     # RTCDemoConfigを直接構築（policyが既に設定されているので、__post_init__でスキップされる）
     cfg = RTCDemoConfig(
