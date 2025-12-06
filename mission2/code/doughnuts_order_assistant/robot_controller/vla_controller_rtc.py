@@ -260,12 +260,22 @@ def get_actions(
                 obs_with_policy_features["task"] = [
                     task_str
                 ]  # Task should be a list, not a string!
-                logger.debug(f"[GET_ACTIONS] Set obs_with_policy_features['task'] = {obs_with_policy_features['task']}")
+                # Log task value before preprocessing (only once per episode)
+                if not hasattr(get_actions, "_last_logged_obs_task"):
+                    logger.info(f"[GET_ACTIONS] obs_with_policy_features['task'] before preprocessing: {obs_with_policy_features['task']}")
+                    get_actions._last_logged_obs_task = task_str
                 obs_with_policy_features["robot_type"] = (
                     robot.robot.name if hasattr(robot.robot, "name") else ""
                 )
 
                 preproceseded_obs = preprocessor(obs_with_policy_features)
+                # Log task value after preprocessing (only once per episode)
+                if not hasattr(get_actions, "_last_logged_preprocessed_task"):
+                    if "task" in preproceseded_obs:
+                        logger.info(f"[GET_ACTIONS] preproceseded_obs['task'] after preprocessing: {preproceseded_obs['task']}")
+                    else:
+                        logger.warning("[GET_ACTIONS] 'task' key not found in preproceseded_obs after preprocessing!")
+                    get_actions._last_logged_preprocessed_task = task_str
 
                 # Generate actions WITH RTC
                 actions = policy.predict_action_chunk(
@@ -595,6 +605,10 @@ def run_episode(
     # Reset the last logged task to force logging the new task
     if hasattr(get_actions, "_last_logged_task"):
         delattr(get_actions, "_last_logged_task")
+    if hasattr(get_actions, "_last_logged_obs_task"):
+        delattr(get_actions, "_last_logged_obs_task")
+    if hasattr(get_actions, "_last_logged_preprocessed_task"):
+        delattr(get_actions, "_last_logged_preprocessed_task")
 
     # Start chunk requester thread with task override
     # Always create a new thread to ensure the task is updated
