@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from typing import Final
+from typing import Final, Optional
 
+import evdev
+from evdev import ecodes
 from state_controller.machine import OrderStateManager
 from state_controller.states import OrderPhase
 
@@ -14,43 +16,52 @@ _DEBOUNCE_WINDOW_SEC: Final[float] = 0.3
 _POST_R_DELAY_SEC: Final[float] = 10.0
 
 
-async def _wait_for_r(prompt: str) -> None:
-    """Wait until the user presses 'R' (debounced), then apply a short delay.
+def _find_keyboard_device() -> Optional[evdev.InputDevice]:
+    """Find the first input device that reports EV_KEY events (likely a keyboard).
 
-    - Multiple rapid 'R' presses are treated as a single input.
-    - After accepting 'R', we wait `_POST_R_DELAY_SEC` seconds before returning.
+    Returns:
+        evdev.InputDevice or None if not found.
     """
 
-    def _block() -> None:
-        import select
-        import time
+    for path in evdev.list_devices():
+        try:
+            dev = evdev.InputDevice(path)
+            caps = dev.capabilities().get(ecodes.EV_KEY, [])
+            if caps:
+                logger.info("Using input device for R detection: %s", path)
+                return dev
+        except Exception:
+            continue
+    return None
 
-        print(prompt)
 
-        # Drain any pending input before we start waiting.
-        while True:
-            rlist, _, _ = select.select([sys.stdin], [], [], 0)
-            if not rlist:
-                break
-            sys.stdin.read(1)
+async def _wait_for_r(prompt: str) -> None:
+    """Wait for a physical 'R' key press via evdev (debounced), then sleep 10s."""
 
-        # Wait for first 'r' / 'R'.
-        while True:
-            ch = sys.stdin.read(1)
-            if not ch:
-                continue
-            if ch.lower() == "r":
-                # Debounce: swallow additional key presses for a short window.
-                end = time.time() + _DEBOUNCE_WINDOW_SEC
-                while time.time() < end:
-                    rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
-                    if rlist:
-                        sys.stdin.read(1)
-                break
+    dev = _find_keyboard_device()
+    if dev is None:
+        logger.error("No keyboard-like input device found; cannot detect R key.")
+        return
 
-    # Block in a thread so that the event loop stays responsive.
-    await asyncio.to_thread(_block)
-    # Global delay after the operator confirms with R.
+    print(prompt)
+
+    last_press = 0.0
+    loop = asyncio.get_running_loop()
+
+    async for event in dev.async_read_loop():
+        if event.type != ecodes.EV_KEY:
+            continue
+        if event.code != ecodes.KEY_R:
+            continue
+        if event.value not in (1, 2):  # key down or autorepeat
+            continue
+
+        now = loop.time()
+        if now - last_press < _DEBOUNCE_WINDOW_SEC:
+            continue
+        last_press = now
+        break
+
     await asyncio.sleep(_POST_R_DELAY_SEC)
 
 
