@@ -513,6 +513,9 @@ class PersistentRobotWorker:
         if cmd.type == WorkerCommandType.START_ORDER:
             if cmd.request_id is None or cmd.flavor is None:
                 return {"status": "error", "message": "Missing request_id or flavor"}
+            logger.info(
+                f"[WORKER] Received START_ORDER command: request_id={cmd.request_id}, flavor='{cmd.flavor}'"
+            )
             asyncio.create_task(self._execute_order(cmd.request_id, cmd.flavor))
             return {"status": "ok", "message": "Order started"}
 

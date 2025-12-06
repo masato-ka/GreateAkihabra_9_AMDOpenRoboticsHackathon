@@ -253,6 +253,10 @@ def get_actions(
 
                 # Use task_override if provided, otherwise use cfg.task
                 task_str = task_override if task_override is not None else cfg.task
+                # Log the task being used (only log once per episode to avoid spam)
+                if not hasattr(get_actions, "_last_logged_task") or get_actions._last_logged_task != task_str:
+                    logger.info(f"[GET_ACTIONS] Using task: '{task_str}'")
+                    get_actions._last_logged_task = task_str
                 obs_with_policy_features["task"] = [
                     task_str
                 ]  # Task should be a list, not a string!
@@ -587,8 +591,13 @@ def run_episode(
     # Small delay to ensure threads are fully stopped
     time.sleep(0.5)
 
+    # Reset the last logged task to force logging the new task
+    if hasattr(get_actions, "_last_logged_task"):
+        delattr(get_actions, "_last_logged_task")
+
     # Start chunk requester thread with task override
     # Always create a new thread to ensure the task is updated
+    logger.info(f"[RUN_EPISODE] Creating new get_actions thread with task: '{task}'")
     get_actions_thread_new = Thread(
         target=get_actions,
         args=(
