@@ -11,9 +11,5 @@ dependencies = [
     "lerobot-robot-bi-so101-follower>=0.1.1",
     "num2words>=0.5.14",
     "evdev>=1.7.1",
-    "torch==2.7.1+rocm6.3",
-    "torchvision==0.22.1+rocm6.3",
-    "torchaudio==2.7.1+rocm6.3",
-    "pytorch-triton-rocm==3.3.1",
     "transformers>=4.57.3",
 ]
