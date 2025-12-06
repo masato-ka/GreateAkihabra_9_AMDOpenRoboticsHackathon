@@ -13,3 +13,6 @@ dependencies = [
     "evdev>=1.7.1",
     "transformers>=4.57.3",
 ]
+
+[project.scripts]
+worker = "robot_controller.worker_cli:main"
