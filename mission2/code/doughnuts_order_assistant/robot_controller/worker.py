@@ -72,7 +72,7 @@ class PersistentRobotWorker:
 
     def _find_keyboard_device(self) -> Optional[evdev.InputDevice]:
         """Find the input device for R key detection.
-        
+
         Priority:
         1. Environment variable R_KEY_EVENT (set by worker_cli.py)
         2. First device with EV_KEY capability
@@ -238,6 +238,19 @@ class PersistentRobotWorker:
                 )
                 return False
 
+        # Clear any pending events in the queue before starting to wait
+        # This prevents detecting old R key presses from previous phases
+        # Reopen the device to clear the event queue
+        device_path = self._r_key_device.path
+        try:
+            self._r_key_device.close()
+        except Exception:
+            pass
+        try:
+            self._r_key_device = evdev.InputDevice(device_path)
+        except Exception as e:
+            logger.warning(f"[WORKER] Failed to reopen device for event clearing: {e}")
+
         last_press = [0.0]  # Use list to allow modification in nested function
         loop = asyncio.get_event_loop()
 
@@ -338,7 +351,9 @@ class PersistentRobotWorker:
                 r_detected = await r_key_task
                 # R key was pressed, wait for episode to finish gracefully
                 # (episode_shutdown.set() was already called, so it should finish soon)
-                logger.info("[WORKER] Waiting for episode to finish after R key detection...")
+                logger.info(
+                    "[WORKER] Waiting for episode to finish after R key detection..."
+                )
             else:
                 # Episode completed naturally, cancel R key task
                 r_key_task.cancel()
@@ -434,7 +449,9 @@ class PersistentRobotWorker:
                 r_detected = await r_key_task
                 # R key was pressed, wait for episode to finish gracefully
                 # (episode_shutdown.set() was already called, so it should finish soon)
-                logger.info("[WORKER] Waiting for episode to finish after R key detection...")
+                logger.info(
+                    "[WORKER] Waiting for episode to finish after R key detection..."
+                )
             else:
                 # Episode completed naturally, cancel R key task
                 r_key_task.cancel()
