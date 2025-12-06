@@ -435,7 +435,11 @@ class PersistentRobotWorker:
         """ワーカーを起動する。"""
         try:
             # Initialize model and robot
-            self._initialize_model_and_robot()
+            try:
+                self._initialize_model_and_robot()
+            except Exception as e:
+                logger.exception("[WORKER] Failed to initialize model/robot: %s", e)
+                return
 
             # Start socket server
             await self._socket_server_loop()
@@ -455,8 +459,11 @@ class PersistentRobotWorker:
 
             # Disconnect robot
             if self._robot_wrapper and self._robot_wrapper.robot:
-                self._robot_wrapper.robot.disconnect()
-                logger.info("[WORKER] Robot disconnected")
+                try:
+                    self._robot_wrapper.robot.disconnect()
+                    logger.info("[WORKER] Robot disconnected")
+                except Exception as e:
+                    logger.error("[WORKER] Error during robot disconnect: %s", e)
 
             logger.info("[WORKER] Worker stopped")
 
