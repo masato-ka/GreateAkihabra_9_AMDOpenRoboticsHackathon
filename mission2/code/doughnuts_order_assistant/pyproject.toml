@@ -17,5 +17,12 @@ dependencies = [
 [project.scripts]
 worker = "robot_controller.worker_cli:main"
 
+[tool.setuptools]
+package-dir = {"": "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*", "services*", "state_controller*", "robot_controller*"]
+
 [tool.uv]
 package = true
