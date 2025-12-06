@@ -17,8 +17,6 @@ def create_order(
     base_url: str,
     *,
     flavor: str,
-    table_id: str,
-    user_id: str,
 ) -> Dict:
     """POST /orders を叩いて注文を作成する。
 
@@ -28,8 +26,6 @@ def create_order(
 
     payload = {
         "flavor": flavor,
-        "table_id": table_id,
-        "user_id": user_id,
     }
     req = request.Request(
         f"{base_url.rstrip('/')}/orders",

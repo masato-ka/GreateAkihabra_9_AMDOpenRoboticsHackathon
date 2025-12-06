@@ -23,8 +23,6 @@ async def create_order(
 ) -> OrderCreated:
     request_id = await service.create_order(
         flavor=body.flavor,
-        table_id=body.table_id,
-        user_id=body.user_id,
     )
     return OrderCreated(request_id=request_id)
 

@@ -24,8 +24,6 @@ class OrderState:
 
     request_id: str
     flavor: Flavor
-    table_id: str
-    user_id: str
     phase: OrderPhase = OrderPhase.WAITING
     message: str = ""
     progress: float = 0.0

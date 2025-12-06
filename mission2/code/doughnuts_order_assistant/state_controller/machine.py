@@ -16,15 +16,11 @@ class OrderStateManager:
         self._orders: Dict[str, OrderState] = {}
         # 単純化のためロックは置かず、単一プロセス・単一ワーカー前提とする。
 
-    async def create_order(
-        self, flavor: Flavor, table_id: str, user_id: str
-    ) -> OrderState:
+    async def create_order(self, flavor: Flavor) -> OrderState:
         request_id = str(uuid4())
         state = OrderState(
             request_id=request_id,
             flavor=flavor,
-            table_id=table_id,
-            user_id=user_id,
             phase=OrderPhase.WAITING,
             message="注文を受け付けました",
             progress=0.0,

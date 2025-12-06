@@ -5,7 +5,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-
 Flavor = Literal["chocolate", "strawberry"]
 
 
@@ -13,8 +12,6 @@ class OrderRequest(BaseModel):
     """POST /orders のリクエストボディ。"""
 
     flavor: Flavor
-    table_id: str = Field(..., description="テーブルIDなどの識別子")
-    user_id: str = Field(..., description="チャット側のユーザーID")
 
 
 class OrderCreated(BaseModel):
@@ -54,5 +51,3 @@ class ErrorEvent(BaseModel):
 
 
 GatewayEvent = StatusUpdateEvent | CompletedEvent | ErrorEvent
-
-

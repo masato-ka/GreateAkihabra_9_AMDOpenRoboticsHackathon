@@ -24,12 +24,10 @@ class OrderService:
     def state_manager(self) -> OrderStateManager:
         return self._state_manager
 
-    async def create_order(self, flavor: Flavor, table_id: str, user_id: str) -> str:
+    async def create_order(self, flavor: Flavor) -> str:
         """注文を作成し、ロボット動作をバックグラウンドで開始する。"""
 
-        state = await self._state_manager.create_order(
-            flavor=flavor, table_id=table_id, user_id=user_id
-        )
+        state = await self._state_manager.create_order(flavor=flavor)
 
         # ロボット動作はバックグラウンドタスクとして実行
         asyncio.create_task(self._robot_adapter.run_order(state.request_id))
