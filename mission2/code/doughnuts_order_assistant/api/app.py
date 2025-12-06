@@ -22,9 +22,6 @@ _worker_task: asyncio.Task | None = None
 
 def _create_worker_config() -> RTCDemoConfig:
     """ワーカー用の設定を作成する。"""
-    import sys
-
-    import draccus
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import RTCAttentionSchedule
     from lerobot.policies.rtc.configuration_rtc import RTCConfig
@@ -47,36 +44,41 @@ def _create_worker_config() -> RTCDemoConfig:
         prefix_attention_schedule=RTCAttentionSchedule.EXP,
     )
 
-    # RTCDemoConfig 全体を draccus で構築（uvicorn 引数を無視するため sys.argv を最小化）
-    original_argv = sys.argv.copy()
-    try:
-        sys.argv = ["dummy"]
-        cli_args = [
-            "--policy.path=masato-ka/smolvla-donuts-shop-v1",
-            "--robot.type=bi_so101_follower",
-            "--robot.id=bi_robot",
-            "--robot.left_arm_port=/dev/ttyACM3",
-            "--robot.right_arm_port=/dev/ttyACM2",
-            "--robot.cameras={front: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}, back: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}",
-            "--rtc.enabled=true",
-            "--rtc.execution_horizon=12",
-            "--rtc.max_guidance_weight=10.0",
-            "--duration=120",
-            "--fps=30",
-            "--device=cuda",
-            "--use_torch_compile=false",
-        ]
-        cfg = draccus.parse(config_class=RTCDemoConfig, args=cli_args)
-        # policy/rtc を上書き
-        cfg.policy = policy
-        cfg.rtc = rtc
-        cfg.duration = 120.0
-        cfg.fps = 30.0
-        cfg.device = "cuda"
-        cfg.use_torch_compile = False
-        return cfg
-    finally:
-        sys.argv = original_argv
+    # Robot config を直接構築（draccusを介さない）
+    robot = RobotConfig(
+        type="bi_so101_follower",
+        id="bi_robot",
+        left_arm_port="/dev/ttyACM3",
+        right_arm_port="/dev/ttyACM2",
+        cameras={
+            "front": {
+                "type": "opencv",
+                "index_or_path": "/dev/video4",
+                "width": 640,
+                "height": 480,
+                "fps": 30,
+            },
+            "back": {
+                "type": "opencv",
+                "index_or_path": "/dev/video6",
+                "width": 640,
+                "height": 480,
+                "fps": 30,
+            },
+        },
+    )
+
+    # RTCDemoConfigを直接構築（policyが既に設定されているので、__post_init__でスキップされる）
+    cfg = RTCDemoConfig(
+        policy=policy,
+        robot=robot,
+        rtc=rtc,
+        duration=120.0,
+        fps=30.0,
+        device="cuda",
+        use_torch_compile=False,
+    )
+    return cfg
 
 
 @asynccontextmanager
