@@ -22,16 +22,17 @@ class OrderService:
     def state_manager(self) -> OrderStateManager:
         return self._state_manager
 
-    async def create_order(self, flavor: Flavor) -> str:
+    async def create_order(self, flavor: Flavor | str) -> str:
         """Create an order and start robot execution via worker."""
 
+        flavor_str = flavor.value if hasattr(flavor, "value") else str(flavor)
         state = await self._state_manager.create_order(flavor=flavor)
 
         # Send command to worker
         cmd = WorkerCommand(
             type=WorkerCommandType.START_ORDER,
             request_id=state.request_id,
-            flavor=flavor.value,
+            flavor=flavor_str,
         )
         result = await send_command_to_worker_async(cmd)
         if result.get("status") != "ok":
