@@ -32,13 +32,14 @@ Frontend (chat app, etc.) uses HTTP + SSE.
 ### Robot execution (persistent worker)
 - **Persistent worker process**: Model is loaded once, handles multiple orders via Unix socket.
 - Two-phase execution per order:
-  - Phase 1: `PUTTING_DONUT` - "Please take the {flavor} donuts and into the box."
+  - Phase 1: `PUTTING_DONUT` - "Please take the chocolate donuts and into the box." or "Pick up the strawberry donut and place it in the box."
   - Phase 2: `CLOSING_LID` - "Please close the box."
 - R-key gating between phases:
-  - R detection via `evdev` (`/dev/input/event*`, needs permission).
-  - Debounced (0.3s); after accepting `R`, wait 10s before proceeding.
+  - R detection via `evdev` (`/dev/input/event*`, needs permission, default: `/dev/input/event17`).
+  - Debounced (0.3s); after accepting `R`, wait 5s before proceeding.
   - Success is determined **only by R-key presses** (not by policy exit codes).
-  - Flow: Phase 1 → (R + 10s) → Phase 2 → (R + 10s) → `DONE`.
+  - Flow: Phase 1 → (R + 5s) → Phase 2 → (R + 5s) → `DONE`.
+  - Phase 1 completion is notified via SSE event before proceeding to Phase 2.
 
 ### Prerequisites
 - Python 3.10.x (`requires-python = ">=3.10,<3.11"`).

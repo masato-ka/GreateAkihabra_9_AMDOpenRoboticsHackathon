@@ -390,6 +390,14 @@ class PersistentRobotWorker:
                 )
                 return
 
+            # Phase 1 completed - notify before delay
+            await self._state_manager.set_phase(
+                request_id,
+                OrderPhase.PUTTING_DONUT,
+                "Phase 1 completed. Waiting before Phase 2...",
+                progress=0.7,
+            )
+
             await asyncio.sleep(_POST_R_DELAY_SEC)
 
             # Phase 2: Close the box
