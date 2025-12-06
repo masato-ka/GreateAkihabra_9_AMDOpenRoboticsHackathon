@@ -158,14 +158,22 @@ class LerobotDonutRobotAdapter(SimulationDonutRobotAdapter):
         return await proc.wait()
 
     async def run_order(self, request_id: str, flavor: str | None = None) -> None:  # type: ignore[override]
-        """Run order with real robot subprocess and R-key gating between phases."""
+        """Run order with real robot in two stages, each with its own prompt.
+
+        Stage 1: pick & place donuts into the box (SmolVLA prompt #1).
+        Stage 2: close the box (SmolVLA prompt #2), after operator presses 'r'.
+
+        NOTE: Currently this spawns TWO subprocesses (and loads the model twice)
+        per order. A long-running worker would be needed to avoid reloads.
+        """
 
         flavor_str = flavor or "chocolate"
-        task_prompt = (
+        pick_prompt = (
             "Please take the chocolate donuts and into the box."
             if flavor_str == "chocolate"
             else "Please take the strawberry donuts and into the box."
         )
+        close_prompt = "Please close the box."
 
         logger.info(
             "[LerobotDonutRobotAdapter] start order %s flavor=%s",
@@ -173,31 +181,53 @@ class LerobotDonutRobotAdapter(SimulationDonutRobotAdapter):
             flavor_str,
         )
 
-        # Phase 1 label
+        # ----- Stage 1: pick & place -----
         await self._state_manager.set_phase(
             request_id,
             OrderPhase.PUTTING_DONUT,
             f"Executing policy for {flavor_str} donuts (pick & place)...",
-            progress=0.5,
+            progress=0.4,
         )
 
-        # Run the SmolVLA policy as a subprocess (covers both picking and closing)
-        rc = await self._run_policy_subprocess(task_prompt)
-
-        if rc != 0:
-            msg = f"vla_controller_rtc exited with code {rc}"
+        rc1 = await self._run_policy_subprocess(pick_prompt)
+        if rc1 != 0:
+            msg = f"vla_controller_rtc (pick) exited with code {rc1}"
             logger.error("[LerobotDonutRobotAdapter] %s", msg)
             await self._state_manager.mark_error(request_id, msg)
             return
 
-        # Phase 2 label (lid closing) — we still gate by R for operator confirmation.
+        # Wait for operator confirmation to start closing stage.
+        await self._state_manager.set_phase(
+            request_id,
+            OrderPhase.PUTTING_DONUT,
+            "Pick & place finished. Press 'r' to start closing the box.",
+            progress=0.6,
+        )
+        await _wait_for_r("Press 'r' to start closing the box.")
+
+        # ----- Stage 2: close lid -----
         await self._state_manager.set_phase(
             request_id,
             OrderPhase.CLOSING_LID,
-            "Policy finished. Confirm by pressing 'R' to mark completion.",
+            "Executing policy to close the box...",
+            progress=0.8,
+        )
+
+        rc2 = await self._run_policy_subprocess(close_prompt)
+        if rc2 != 0:
+            msg = f"vla_controller_rtc (close) exited with code {rc2}"
+            logger.error("[LerobotDonutRobotAdapter] %s", msg)
+            await self._state_manager.mark_error(request_id, msg)
+            return
+
+        # Final confirmation before marking as completed.
+        await self._state_manager.set_phase(
+            request_id,
+            OrderPhase.CLOSING_LID,
+            "Box closed. Press 'r' to mark the order as completed.",
             progress=0.9,
         )
-        await _wait_for_r("Press 'R' to mark the order as completed.")
+        await _wait_for_r("Press 'r' to mark the order as completed.")
 
         await self._state_manager.mark_completed(request_id)
         logger.info("[LerobotDonutRobotAdapter] completed order %s", request_id)
