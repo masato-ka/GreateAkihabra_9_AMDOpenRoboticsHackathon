@@ -307,6 +307,12 @@ class PersistentRobotWorker:
 
             async def run_episode_async():
                 """Run episode in executor and return result."""
+                logger.info(
+                    f"[WORKER] run_episode_async: About to call run_episode with task: '{task_phase1}'"
+                )
+                logger.info(
+                    f"[WORKER] run_episode_async: cfg.task = '{self._cfg.task}'"
+                )
                 return await loop.run_in_executor(
                     None,
                     run_episode,

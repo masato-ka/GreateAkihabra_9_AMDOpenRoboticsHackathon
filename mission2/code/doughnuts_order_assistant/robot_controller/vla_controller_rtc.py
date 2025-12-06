@@ -252,14 +252,15 @@ def get_actions(
                     )
 
                 # Use task_override if provided, otherwise use cfg.task
-                task_str = task_override if task_override is not None else cfg.task
+                task_str = task_override if (task_override is not None and task_override != "") else cfg.task
                 # Log the task being used (only log once per episode to avoid spam)
                 if not hasattr(get_actions, "_last_logged_task") or get_actions._last_logged_task != task_str:
-                    logger.info(f"[GET_ACTIONS] Using task: '{task_str}'")
+                    logger.info(f"[GET_ACTIONS] Using task: '{task_str}' (task_override='{task_override}', cfg.task='{cfg.task}')")
                     get_actions._last_logged_task = task_str
                 obs_with_policy_features["task"] = [
                     task_str
                 ]  # Task should be a list, not a string!
+                logger.debug(f"[GET_ACTIONS] Set obs_with_policy_features['task'] = {obs_with_policy_features['task']}")
                 obs_with_policy_features["robot_type"] = (
                     robot.robot.name if hasattr(robot.robot, "name") else ""
                 )
@@ -598,6 +599,7 @@ def run_episode(
     # Start chunk requester thread with task override
     # Always create a new thread to ensure the task is updated
     logger.info(f"[RUN_EPISODE] Creating new get_actions thread with task: '{task}'")
+    logger.info(f"[RUN_EPISODE] cfg.task = '{cfg.task}', task_override = '{task}'")
     get_actions_thread_new = Thread(
         target=get_actions,
         args=(
