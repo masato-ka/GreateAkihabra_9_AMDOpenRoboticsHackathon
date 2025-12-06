@@ -8,4 +8,5 @@ dependencies = [
     "lerobot>=0.4.2",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
+    "lerobot-robot-bi-so101-follower>=0.1.1",
 ]

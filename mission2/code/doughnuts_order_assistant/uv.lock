@@ -500,6 +500,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "lerobot" },
+    { name = "lerobot-robot-bi-so101-follower" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -507,6 +508,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "lerobot", specifier = ">=0.4.2" },
+    { name = "lerobot-robot-bi-so101-follower", specifier = ">=0.1.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
 ]
 
@@ -1026,6 +1028,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/dd/6b/f80861cb1dbc908a45a7c96bdd88cf77de1e259f3b5a183ff859cca71fe7/lerobot-0.4.2.tar.gz", hash = "sha256:9fe72d9f2ad26438c03277f90b13efef126dd680ac082d112f9eef804be78101", size = 576787 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d5/58/f5f9d6c0451df3e5cf9c484b1eb6a3abb93016677630a615b925c9da189a/lerobot-0.4.2-py3-none-any.whl", hash = "sha256:af4e5c709522c8022703e10431c14ae65b2e967e7ab608f51a07c03c38cefe04", size = 758780 },
+]
+
+[[package]]
+name = "lerobot-robot-bi-so101-follower"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/04/0605a0b82bba5287dd21af618e02f5cbb8d5ba53c339dc71988a53f3d62c/lerobot_robot_bi_so101_follower-0.1.1.tar.gz", hash = "sha256:0682c7193954d20070b43735f6346d1897812b09f843d565cbad67945a31731d", size = 5171 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/0f/a4cc1b2205baf899b49263f2f9ca5220018fbd7d002c9a361ac23a52043b/lerobot_robot_bi_so101_follower-0.1.1-py3-none-any.whl", hash = "sha256:e4f62ce3d69393a8f9e4c59d7ff67a156545c2f6b90199d28b284b8da9ad46e4", size = 6805 },
 ]
 
 [[package]]
