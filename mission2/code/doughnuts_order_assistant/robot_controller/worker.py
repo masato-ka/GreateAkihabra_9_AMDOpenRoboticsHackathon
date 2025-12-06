@@ -13,7 +13,6 @@ from threading import Event, Thread
 from typing import Optional
 
 import evdev
-from api.schemas import StatusUpdateEvent
 from evdev import ecodes
 from robot_controller.vla_controller_rtc import (
     RobotWrapper,
@@ -23,7 +22,6 @@ from robot_controller.vla_controller_rtc import (
     get_actions,
     run_episode,
 )
-from state_controller.events import publish_event
 from state_controller.machine import OrderStateManager
 from state_controller.states import OrderPhase
 
@@ -285,19 +283,6 @@ class PersistentRobotWorker:
         self._current_flavor = flavor
 
         try:
-            # Notify that Phase 1 (box packing) has started
-            await publish_event(
-                StatusUpdateEvent(
-                    request_id=request_id,
-                    stage=OrderPhase.PUTTING_DONUT.name,
-                    progress=0.5,
-                    message=f"ドーナツの箱詰めを開始しました ({flavor})",
-                )
-            )
-            logger.info(
-                f"[WORKER] Published Phase 1 start event for order {request_id}"
-            )
-
             # Phase 1: Put doughnuts into the box
             # Note: Different prompt formats for chocolate and strawberry
             task_phase1 = (
@@ -306,10 +291,11 @@ class PersistentRobotWorker:
                 else "Pick up the strawberry donut and place it in the box."
             )
 
+            # Notify that Phase 1 (box packing) has started
             await self._state_manager.set_phase(
                 request_id,
                 OrderPhase.PUTTING_DONUT,
-                f"Executing policy for {flavor} donuts (pick & place)...",
+                f"ドーナツの箱詰めを開始しました ({flavor})",
                 progress=0.5,
             )
 
@@ -409,7 +395,7 @@ class PersistentRobotWorker:
             await self._state_manager.set_phase(
                 request_id,
                 OrderPhase.PUTTING_DONUT,
-                "Phase 1 completed. Waiting before Phase 2...",
+                "Phase 1完了: ドーナツを箱に入れました。Phase 2の準備中...",
                 progress=0.7,
             )
 

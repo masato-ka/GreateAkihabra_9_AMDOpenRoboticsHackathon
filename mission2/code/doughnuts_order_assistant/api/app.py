@@ -37,7 +37,8 @@ async def lifespan(app: FastAPI):
     logger.info(
         "[APP] Skipping internal worker startup; start worker_main.py separately."
     )
-    _state_manager = OrderStateManager()
+    # APIサーバー側では skip_socket=True を指定（自分自身に送信しない）
+    _state_manager = OrderStateManager(skip_socket=True)
     _order_service = OrderService(state_manager=_state_manager)
     
     # Start Unix socket server to receive events from worker process
