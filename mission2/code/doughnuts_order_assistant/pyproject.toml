@@ -3,10 +3,16 @@ name = "doughnuts-order-assistant"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.11"
 dependencies = [
-    "lerobot>=0.4.2",
+    "lerobot[feetech]>=0.4.2",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "lerobot-robot-bi-so101-follower>=0.1.1",
+    "num2words>=0.5.14",
+    "torch==2.7.1+rocm6.3",
+    "torchvision==0.22.1+rocm6.3",
+    "torchaudio==2.7.1+rocm6.3",
+    "pytorch-triton-rocm==3.3.1",
+    "transformers>=4.57.3",
 ]
