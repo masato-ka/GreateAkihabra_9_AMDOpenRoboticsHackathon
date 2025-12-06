@@ -13,6 +13,7 @@ from threading import Event, Thread
 from typing import Optional
 
 import evdev
+from api.schemas import StatusUpdateEvent
 from evdev import ecodes
 from robot_controller.vla_controller_rtc import (
     RobotWrapper,
@@ -22,6 +23,7 @@ from robot_controller.vla_controller_rtc import (
     get_actions,
     run_episode,
 )
+from state_controller.events import publish_event
 from state_controller.machine import OrderStateManager
 from state_controller.states import OrderPhase
 
@@ -283,6 +285,19 @@ class PersistentRobotWorker:
         self._current_flavor = flavor
 
         try:
+            # Notify that Phase 1 (box packing) has started
+            await publish_event(
+                StatusUpdateEvent(
+                    request_id=request_id,
+                    stage=OrderPhase.PUTTING_DONUT.name,
+                    progress=0.5,
+                    message=f"ドーナツの箱詰めを開始しました ({flavor})",
+                )
+            )
+            logger.info(
+                f"[WORKER] Published Phase 1 start event for order {request_id}"
+            )
+
             # Phase 1: Put doughnuts into the box
             # Note: Different prompt formats for chocolate and strawberry
             task_phase1 = (
@@ -538,10 +553,29 @@ class PersistentRobotWorker:
         """Unixソケットでコマンドを受信するループ。"""
         # Remove socket file if it exists
         if os.path.exists(_WORKER_SOCKET_PATH):
+            logger.info(
+                f"[WORKER] Removing existing socket file: {_WORKER_SOCKET_PATH}"
+            )
             os.unlink(_WORKER_SOCKET_PATH)
 
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(_WORKER_SOCKET_PATH)
+        try:
+            server.bind(_WORKER_SOCKET_PATH)
+            logger.info(f"[WORKER] Successfully bound socket to {_WORKER_SOCKET_PATH}")
+        except Exception as e:
+            logger.error(
+                f"[WORKER] Failed to bind socket to {_WORKER_SOCKET_PATH}: {e}"
+            )
+            raise
+
+        # Verify socket file was created
+        if os.path.exists(_WORKER_SOCKET_PATH):
+            logger.info(f"[WORKER] Socket file exists: {_WORKER_SOCKET_PATH}")
+        else:
+            logger.error(
+                f"[WORKER] Socket file was NOT created at {_WORKER_SOCKET_PATH}"
+            )
+
         server.listen(1)
         server.setblocking(False)
 
@@ -616,6 +650,7 @@ class PersistentRobotWorker:
                 )
 
             # Start socket server
+            logger.info("[WORKER] Starting socket server loop...")
             await self._socket_server_loop()
 
         finally:
