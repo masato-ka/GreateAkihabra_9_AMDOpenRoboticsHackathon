@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # R-key detection constants
 _DEBOUNCE_WINDOW_SEC: float = 0.3
-_POST_R_DELAY_SEC: float = 10.0
+_POST_R_DELAY_SEC: float = 5.0
 
 # Worker socket path
 _WORKER_SOCKET_PATH = "/tmp/doughnut_worker.sock"
@@ -332,25 +332,27 @@ class PersistentRobotWorker:
                 [episode_task, r_key_task], return_when=asyncio.FIRST_COMPLETED
             )
 
-            # Cancel the pending task
-            for task in pending:
-                task.cancel()
+            # Check if R key was detected
+            r_detected = False
+            if r_key_task in done:
+                r_detected = await r_key_task
+                # R key was pressed, wait for episode to finish gracefully
+                # (episode_shutdown.set() was already called, so it should finish soon)
+                logger.info("[WORKER] Waiting for episode to finish after R key detection...")
+            else:
+                # Episode completed naturally, cancel R key task
+                r_key_task.cancel()
                 try:
-                    await task
+                    await r_key_task
                 except asyncio.CancelledError:
                     pass
 
-            # Get episode result
+            # Get episode result (wait for it to finish)
             (
                 self._current_get_actions_thread,
                 self._current_actor_thread,
                 self._current_action_queue,
             ) = await episode_task
-
-            # Check if R key was detected
-            r_detected = False
-            if r_key_task in done:
-                r_detected = await r_key_task
 
             if not r_detected:
                 # R key was not pressed during episode, wait for it now
@@ -426,25 +428,27 @@ class PersistentRobotWorker:
                 [episode_task, r_key_task], return_when=asyncio.FIRST_COMPLETED
             )
 
-            # Cancel the pending task
-            for task in pending:
-                task.cancel()
+            # Check if R key was detected
+            r_detected = False
+            if r_key_task in done:
+                r_detected = await r_key_task
+                # R key was pressed, wait for episode to finish gracefully
+                # (episode_shutdown.set() was already called, so it should finish soon)
+                logger.info("[WORKER] Waiting for episode to finish after R key detection...")
+            else:
+                # Episode completed naturally, cancel R key task
+                r_key_task.cancel()
                 try:
-                    await task
+                    await r_key_task
                 except asyncio.CancelledError:
                     pass
 
-            # Get episode result
+            # Get episode result (wait for it to finish)
             (
                 self._current_get_actions_thread,
                 self._current_actor_thread,
                 self._current_action_queue,
             ) = await episode_task
-
-            # Check if R key was detected
-            r_detected = False
-            if r_key_task in done:
-                r_detected = await r_key_task
 
             if not r_detected:
                 # R key was not pressed during episode, wait for it now
