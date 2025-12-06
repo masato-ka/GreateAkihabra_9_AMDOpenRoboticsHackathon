@@ -23,11 +23,13 @@ _worker_task: asyncio.Task | None = None
 def _create_worker_config() -> RTCDemoConfig:
     """ワーカー用の設定を作成する。"""
     import sys
+    from dataclasses import field
 
     import draccus
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import RTCAttentionSchedule
     from lerobot.policies.rtc.configuration_rtc import RTCConfig
+    from lerobot.robots import RobotConfig
     from lerobot.utils.import_utils import register_third_party_devices
 
     register_third_party_devices()
@@ -46,40 +48,41 @@ def _create_worker_config() -> RTCDemoConfig:
         prefix_attention_schedule=RTCAttentionSchedule.EXP,
     )
 
-    # RTCDemoConfig全体をdraccusで構築
-    # sys.argvを完全に置き換えて、uvicornの引数が干渉しないようにする
+    # Robot configをdraccusで構築（RTCDemoConfig全体ではなく、robotフィールドだけ）
+    # RTCDemoConfigのrobotフィールドはRobotConfig型なので、RTCDemoConfigを一時的に構築してrobotを取得
     original_argv = sys.argv.copy()
+    robot: RobotConfig | None = None
     try:
-        cli_args = [
+        # sys.argvを完全に置き換える
+        sys.argv = [
+            "dummy",
             "--policy.path=masato-ka/smolvla-donuts-shop-v1",
             "--robot.type=bi_so101_follower",
             "--robot.id=bi_robot",
             "--robot.left_arm_port=/dev/ttyACM3",
             "--robot.right_arm_port=/dev/ttyACM2",
             "--robot.cameras={front: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}, back: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}",
-            "--rtc.enabled=true",
-            "--rtc.execution_horizon=12",
-            "--rtc.max_guidance_weight=10.0",
-            "--duration=120",
-            "--fps=30",
-            "--device=cuda",
-            "--use_torch_compile=false",
         ]
-        # sys.argvを完全に置き換える
-        sys.argv = ["dummy"] + cli_args
-        # draccus.parseはargsパラメータを使うが、内部的にsys.argvも参照する可能性があるので、
-        # sys.argvを置き換えてからargsを渡す
-        cfg = draccus.parse(config_class=RTCDemoConfig, args=cli_args)
-        # 設定を上書き（policyは既に設定されているので、__post_init__でスキップされる）
-        cfg.policy = policy
-        cfg.rtc = rtc
-        cfg.duration = 120.0
-        cfg.fps = 30.0
-        cfg.device = "cuda"
-        cfg.use_torch_compile = False
-        return cfg
+        # RTCDemoConfig全体を構築してrobotフィールドを取得
+        temp_cfg = draccus.parse(config_class=RTCDemoConfig, args=sys.argv[1:])
+        robot = temp_cfg.robot
     finally:
         sys.argv = original_argv
+
+    if robot is None:
+        raise ValueError("Failed to create robot config")
+
+    # RTCDemoConfigを直接構築（policyが既に設定されているので、__post_init__でスキップされる）
+    cfg = RTCDemoConfig(
+        policy=policy,
+        robot=robot,
+        rtc=rtc,
+        duration=120.0,
+        fps=30.0,
+        device="cuda",
+        use_torch_compile=False,
+    )
+    return cfg
 
 
 @asynccontextmanager
