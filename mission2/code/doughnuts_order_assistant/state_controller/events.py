@@ -8,6 +8,7 @@ import socket
 from typing import AsyncIterator
 
 from api.schemas import GatewayEvent
+from pydantic import TypeAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,9 @@ async def start_event_socket_server() -> None:
                     if line:
                         try:
                             event_dict = json.loads(line.decode())
-                            event = GatewayEvent.model_validate(event_dict)
+                            # Use TypeAdapter for Union types
+                            event_adapter = TypeAdapter(GatewayEvent)
+                            event = event_adapter.validate_python(event_dict)
                             await _event_queue.put(event)
                             logger.info(
                                 f"[EVENTS] Received event via socket: {event.type} for {getattr(event, 'request_id', 'N/A')}"
