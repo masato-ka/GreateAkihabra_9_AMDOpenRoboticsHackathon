@@ -22,10 +22,15 @@ _worker_task: asyncio.Task | None = None
 
 def _create_worker_config() -> RTCDemoConfig:
     """ワーカー用の設定を作成する。"""
+    import sys
+
+    from lerobot.configs import parser as lerobot_parser
     from lerobot.configs.policies import PreTrainedConfig
     from lerobot.configs.types import RTCAttentionSchedule
     from lerobot.policies.rtc.configuration_rtc import RTCConfig
-    from lerobot.robots import RobotConfig
+    from lerobot.utils.import_utils import register_third_party_devices
+
+    register_third_party_devices()
 
     # Policy config
     policy = PreTrainedConfig.from_pretrained("masato-ka/smolvla-donuts-shop-v1")
@@ -34,30 +39,6 @@ def _create_worker_config() -> RTCDemoConfig:
     policy.input_features = {"observation.state": {"type": "STATE", "shape": [12]}}
     policy.output_features = {"action": {"type": "ACTION", "shape": [12]}}
 
-    # Robot config
-    robot = RobotConfig(
-        type="bi_so101_follower",
-        id="bi_robot",
-        left_arm_port="/dev/ttyACM3",
-        right_arm_port="/dev/ttyACM2",
-        cameras={
-            "front": {
-                "type": "opencv",
-                "index_or_path": "/dev/video4",
-                "width": 640,
-                "height": 480,
-                "fps": 30,
-            },
-            "back": {
-                "type": "opencv",
-                "index_or_path": "/dev/video6",
-                "width": 640,
-                "height": 480,
-                "fps": 30,
-            },
-        },
-    )
-
     # RTC config
     rtc = RTCConfig(
         execution_horizon=12,
@@ -65,15 +46,41 @@ def _create_worker_config() -> RTCDemoConfig:
         prefix_attention_schedule=RTCAttentionSchedule.EXP,
     )
 
-    return RTCDemoConfig(
-        policy=policy,
-        robot=robot,
-        rtc=rtc,
-        duration=120.0,
-        fps=30.0,
-        device="cuda",
-        use_torch_compile=False,
-    )
+    # RTCDemoConfigを構築するために、CLI引数のような形式でdraccusを使う
+    # __post_init__がCLI引数を期待しているので、一時的にsys.argvを設定する
+    import draccus
+
+    original_argv = sys.argv.copy()
+    try:
+        cli_args = [
+            "--policy.path=masato-ka/smolvla-donuts-shop-v1",
+            "--robot.type=bi_so101_follower",
+            "--robot.id=bi_robot",
+            "--robot.left_arm_port=/dev/ttyACM3",
+            "--robot.right_arm_port=/dev/ttyACM2",
+            "--robot.cameras.front.type=opencv",
+            "--robot.cameras.front.index_or_path=/dev/video4",
+            "--robot.cameras.front.width=640",
+            "--robot.cameras.front.height=480",
+            "--robot.cameras.front.fps=30",
+            "--robot.cameras.back.type=opencv",
+            "--robot.cameras.back.index_or_path=/dev/video6",
+            "--robot.cameras.back.width=640",
+            "--robot.cameras.back.height=480",
+            "--robot.cameras.back.fps=30",
+        ]
+        # Use draccus to parse the config
+        cfg = draccus.parse(config_class=RTCDemoConfig, args=cli_args)
+        # 設定を上書き（policyは既に設定されているので、__post_init__でスキップされる）
+        cfg.policy = policy
+        cfg.rtc = rtc
+        cfg.duration = 120.0
+        cfg.fps = 30.0
+        cfg.device = "cuda"
+        cfg.use_torch_compile = False
+        return cfg
+    finally:
+        sys.argv = original_argv
 
 
 @asynccontextmanager

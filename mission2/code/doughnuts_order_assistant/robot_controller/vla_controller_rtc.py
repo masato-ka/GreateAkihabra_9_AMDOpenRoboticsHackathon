@@ -133,15 +133,17 @@ class RTCDemoConfig(HubMixin):
 
     def __post_init__(self):
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
-        policy_path = parser.get_path_arg("policy")
-        if policy_path:
-            cli_overrides = parser.get_cli_overrides("policy")
-            self.policy = PreTrainedConfig.from_pretrained(
-                policy_path, cli_overrides=cli_overrides
-            )
-            self.policy.pretrained_path = policy_path
-        else:
-            raise ValueError("Policy path is required")
+        # If policy is already set (programmatic construction), skip CLI parsing
+        if self.policy is None:
+            policy_path = parser.get_path_arg("policy")
+            if policy_path:
+                cli_overrides = parser.get_cli_overrides("policy")
+                self.policy = PreTrainedConfig.from_pretrained(
+                    policy_path, cli_overrides=cli_overrides
+                )
+                self.policy.pretrained_path = policy_path
+            else:
+                raise ValueError("Policy path is required")
 
         # Validate that robot configuration is provided
         if self.robot is None:
