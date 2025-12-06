@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 """ワーカーエントリポイント: CLI引数からRTCDemoConfigを構築してPersistentRobotWorkerを起動する。"""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 
