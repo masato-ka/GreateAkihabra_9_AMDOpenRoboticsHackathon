@@ -2,48 +2,95 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+from typing import Final
 
 from state_controller.machine import OrderStateManager
 from state_controller.states import OrderPhase
 
 logger = logging.getLogger(__name__)
 
+_DEBOUNCE_WINDOW_SEC: Final[float] = 0.3
+_POST_R_DELAY_SEC: Final[float] = 10.0
+
+
+async def _wait_for_r(prompt: str) -> None:
+    """Wait until the user presses 'R' (debounced), then apply a short delay.
+
+    - Multiple rapid 'R' presses are treated as a single input.
+    - After accepting 'R', we wait `_POST_R_DELAY_SEC` seconds before returning.
+    """
+
+    def _block() -> None:
+        import select
+        import time
+
+        print(prompt)
+
+        # Drain any pending input before we start waiting.
+        while True:
+            rlist, _, _ = select.select([sys.stdin], [], [], 0)
+            if not rlist:
+                break
+            sys.stdin.read(1)
+
+        # Wait for first 'r' / 'R'.
+        while True:
+            ch = sys.stdin.read(1)
+            if not ch:
+                continue
+            if ch.lower() == "r":
+                # Debounce: swallow additional key presses for a short window.
+                end = time.time() + _DEBOUNCE_WINDOW_SEC
+                while time.time() < end:
+                    rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    if rlist:
+                        sys.stdin.read(1)
+                break
+
+    # Block in a thread so that the event loop stays responsive.
+    await asyncio.to_thread(_block)
+    # Global delay after the operator confirms with R.
+    await asyncio.sleep(_POST_R_DELAY_SEC)
+
 
 class SimulationDonutRobotAdapter:
-    """実機がなくても動作確認できるようにするためのシミュレーション用アダプタ。
+    """Simulation adapter for development without a real robot.
 
-    - 箱にドーナツを詰める
-    - 蓋を閉める
-    という2ステップのみを時間経過で進める。
+    Two logical phases:
+      1. Put doughnuts into the box
+      2. Close the lid
+
+    Each phase advances only after the operator presses the `R` key.
     """
 
     def __init__(self, state_manager: OrderStateManager) -> None:
         self._state_manager = state_manager
 
     async def run_order(self, request_id: str) -> None:
-        """注文フローをシミュレーションで進める。"""
+        """Run a full order flow with two phases and R-key gating."""
 
         logger.info("[SimulationDonutRobotAdapter] start order %s", request_id)
 
-        # ドーナツを箱に詰める
+        # Phase 1: put doughnuts into the box
         await self._state_manager.set_phase(
             request_id,
             OrderPhase.PUTTING_DONUT,
-            "箱にドーナツを入れています",
+            "Putting doughnuts into the box...",
             progress=0.5,
         )
-        await asyncio.sleep(2.0)
+        await _wait_for_r("Phase 1 done. Press 'R' to start closing the lid.")
 
-        # 蓋を閉める
+        # Phase 2: close the lid
         await self._state_manager.set_phase(
             request_id,
             OrderPhase.CLOSING_LID,
-            "箱の蓋を閉めています",
+            "Closing the box lid...",
             progress=0.9,
         )
-        await asyncio.sleep(2.0)
+        await _wait_for_r("Phase 2 done. Press 'R' to mark the order as completed.")
 
-        # 完了
+        # Completed
         await self._state_manager.mark_completed(request_id)
         logger.info("[SimulationDonutRobotAdapter] completed order %s", request_id)
 
@@ -53,12 +100,11 @@ class SimulationDonutRobotAdapter:
 
 
 class LerobotDonutRobotAdapter(SimulationDonutRobotAdapter):
-    """将来的に `vla_controller_rtc.py` と直結させるための拡張ポイント。
+    """Extension point to hook into `vla_controller_rtc.py` and the real robot.
 
-    現時点では SimulationDonutRobotAdapter と同じ挙動だが、
-    実機制御を行う場合はこのクラスを拡張して利用する想定。
+    For now this behaves the same as the simulation adapter.
+    Real SmolVLA + robot integration can be implemented later.
     """
 
-    # ここで vla_controller_rtc.py を呼び出すロジックを実装していく。
-    # ひとまずはシミュレーションと同じ挙動にしておく。
+    # TODO: Implement real robot control using `vla_controller_rtc.py`.
     pass
