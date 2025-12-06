@@ -331,15 +331,18 @@ class PersistentRobotWorker:
                 )
 
             async def wait_for_r_and_shutdown():
-                """Wait for R key and set shutdown event."""
+                """Wait for R key and set shutdown event after 5 seconds delay."""
                 logger.info(
                     "[WORKER] Waiting for R key to stop Phase 1 and proceed to Phase 2..."
                 )
                 r_detected = await self._wait_for_r_key_async()
                 if r_detected:
                     logger.info(
-                        "[WORKER] R key detected during Phase 1, stopping episode..."
+                        "[WORKER] R key detected during Phase 1. Waiting 5 seconds before stopping episode..."
                     )
+                    # Wait 5 seconds before stopping the episode
+                    await asyncio.sleep(5.0)
+                    logger.info("[WORKER] 5 seconds elapsed. Stopping episode...")
                     episode_shutdown.set()
                     return True
                 return False
@@ -437,15 +440,18 @@ class PersistentRobotWorker:
                 )
 
             async def wait_for_r_and_shutdown():
-                """Wait for R key and set shutdown event."""
+                """Wait for R key and set shutdown event after 5 seconds delay."""
                 logger.info(
                     "[WORKER] Waiting for R key to stop Phase 2 and mark as completed..."
                 )
                 r_detected = await self._wait_for_r_key_async()
                 if r_detected:
                     logger.info(
-                        "[WORKER] R key detected during Phase 2, stopping episode..."
+                        "[WORKER] R key detected during Phase 2. Waiting 5 seconds before stopping episode..."
                     )
+                    # Wait 5 seconds before stopping the episode
+                    await asyncio.sleep(5.0)
+                    logger.info("[WORKER] 5 seconds elapsed. Stopping episode...")
                     episode_shutdown.set()
                     return True
                 return False
