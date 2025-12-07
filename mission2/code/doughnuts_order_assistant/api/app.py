@@ -16,10 +16,19 @@ from state_controller.events import (
     iter_events,
     start_event_socket_server,
     stop_event_socket_server,
+    subscribe_events,
 )
 from state_controller.machine import OrderStateManager
 
-from .schemas import CancelResponse, OrderCreated, OrderRequest, OrderStatus
+from .schemas import (
+    CancelResponse,
+    CompletedEvent,
+    ErrorEvent,
+    OrderCreated,
+    OrderRequest,
+    OrderStatus,
+    StatusUpdateEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +56,51 @@ async def lifespan(app: FastAPI):
     # Start Unix socket server to receive events from worker process
     logger.info("[APP] Starting event socket server...")
     await start_event_socket_server()
+
+    # Register event subscriber to sync worker state to API's OrderStateManager
+    async def sync_worker_events(event):
+        """worker側のイベントをAPI側のOrderStateManagerに同期する。"""
+        from state_controller.states import OrderPhase
+
+        try:
+            if isinstance(event, StatusUpdateEvent):
+                # StatusUpdateEvent を OrderPhase に変換
+                phase_map = {
+                    "WAITING": OrderPhase.WAITING,
+                    "PUTTING_DONUT": OrderPhase.PUTTING_DONUT,
+                    "CLOSING_LID": OrderPhase.CLOSING_LID,
+                    "DONE": OrderPhase.DONE,
+                    "CANCELED": OrderPhase.CANCELED,
+                    "ERROR": OrderPhase.ERROR,
+                }
+                phase = phase_map.get(event.stage, OrderPhase.WAITING)
+                await _state_manager.set_phase(
+                    event.request_id,
+                    phase,
+                    event.message,
+                    event.progress,
+                )
+                logger.info(
+                    f"[APP] Synced status update: {event.request_id} -> {event.stage}"
+                )
+            elif isinstance(event, CompletedEvent):
+                await _state_manager.mark_completed(event.request_id)
+                logger.info(f"[APP] Synced completion: {event.request_id}")
+            elif isinstance(event, ErrorEvent) and event.request_id:
+                await _state_manager.mark_error(event.request_id, event.message)
+                logger.info(
+                    f"[APP] Synced error: {event.request_id} -> {event.message}"
+                )
+        except Exception as e:
+            logger.error(f"[APP] Error syncing worker event: {e}", exc_info=True)
+
+    # コールバック関数（coroutineを返す）
+    def sync_callback(event):
+        """同期コールバックラッパー。coroutineを返す。"""
+        return sync_worker_events(event)
+
+    subscribe_events(sync_callback)
+    logger.info("[APP] Registered event subscriber for state synchronization")
 
     yield
 
