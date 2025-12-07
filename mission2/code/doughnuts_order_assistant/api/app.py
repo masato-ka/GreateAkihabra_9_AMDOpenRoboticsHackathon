@@ -5,6 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from robot_controller.vla_controller_rtc import RTCDemoConfig
 from robot_controller.worker import PersistentRobotWorker
@@ -40,19 +41,28 @@ async def lifespan(app: FastAPI):
     # APIサーバー側では skip_socket=True を指定（自分自身に送信しない）
     _state_manager = OrderStateManager(skip_socket=True)
     _order_service = OrderService(state_manager=_state_manager)
-    
+
     # Start Unix socket server to receive events from worker process
     logger.info("[APP] Starting event socket server...")
     await start_event_socket_server()
 
     yield
-    
+
     # Stop Unix socket server
     logger.info("[APP] Stopping event socket server...")
     await stop_event_socket_server()
 
 
 app = FastAPI(title="Doughnuts Order Assistant Gateway", lifespan=lifespan)
+
+# CORS設定を追加
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 開発環境ではすべてのオリジンを許可
+    allow_credentials=True,
+    allow_methods=["*"],  # GET, POST, OPTIONS などを許可
+    allow_headers=["*"],  # すべてのヘッダーを許可
+)
 
 _order_service: OrderService | None = None
 _state_manager: OrderStateManager | None = None
