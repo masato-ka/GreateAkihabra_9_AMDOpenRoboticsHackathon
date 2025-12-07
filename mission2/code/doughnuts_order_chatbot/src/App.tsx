@@ -153,6 +153,8 @@ function App() {
               method: 'GET',
               headers: {
                 'accept': 'application/json',
+                // ngrok のブラウザ警告ページをスキップするためのヘッダー
+                'ngrok-skip-browser-warning': '1',
               },
             }
           )
@@ -181,14 +183,19 @@ function App() {
             message: data.message,
           })
           
-          // 完了判定
+          // 完了判定（DONE のときだけ完了画面、それ以外はエラー画面）
           if (data.done) {
             console.log('========================================')
-            console.log('✅ 注文が完了しました')
+            console.log('✅ 注文が終了しました (stage =', data.stage, ')')
             console.log('========================================')
             
             setTimeout(() => {
-              setState('complete')
+              if (data.stage === 'DONE') {
+                setState('complete')
+              } else {
+                // ERROR / CANCELED などはエラー画面にする
+                setState('error')
+              }
             }, 1000)
           }
         } catch (error) {

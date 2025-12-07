@@ -72,7 +72,8 @@ class SimulationDonutRobotAdapter:
       1. Put doughnuts into the box
       2. Close the lid
 
-    Each phase advances only after the operator presses the `R` key.
+    デフォルトでは、各フェーズは一定時間(タイマー)経過で自動的に進行する。
+    キーボードや実ロボットが無くてもフロントエンド/API の動作を確認するための簡易シミュレータ。
     """
 
     def __init__(self, state_manager: OrderStateManager) -> None:
@@ -90,7 +91,8 @@ class SimulationDonutRobotAdapter:
             "Putting doughnuts into the box...",
             progress=0.5,
         )
-        await _wait_for_r("Phase 1 done. Press 'R' to start closing the lid.")
+        # 実機なし環境でも動かせるように、Rキー待ちの代わりに単純なタイマーで進行させる
+        await asyncio.sleep(3.0)
 
         # Phase 2: close the lid
         await self._state_manager.set_phase(
@@ -99,7 +101,8 @@ class SimulationDonutRobotAdapter:
             "Closing the box lid...",
             progress=0.9,
         )
-        await _wait_for_r("Phase 2 done. Press 'R' to mark the order as completed.")
+        # 同様に、一定時間経過後に完了扱いにする
+        await asyncio.sleep(3.0)
 
         # Completed
         await self._state_manager.mark_completed(request_id)
