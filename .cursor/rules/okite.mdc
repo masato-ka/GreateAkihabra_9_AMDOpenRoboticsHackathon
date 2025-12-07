@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+Pythonの依存関係の追加はuv addとかuv経由でやること。pyproject.tomlの直接編集は禁止

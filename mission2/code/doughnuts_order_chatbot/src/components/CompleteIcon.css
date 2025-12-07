@@ -1,0 +1,24 @@
+.complete-icon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.complete-svg {
+  width: 180px;
+  height: 180px;
+  animation: completePop 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes completePop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+

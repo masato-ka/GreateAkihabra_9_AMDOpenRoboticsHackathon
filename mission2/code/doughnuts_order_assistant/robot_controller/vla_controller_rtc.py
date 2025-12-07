@@ -15,10 +15,10 @@ from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
 
 import torch
-from torch import Tensor
-
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig  # noqa: F401
-from lerobot.cameras.realsense.configuration_realsense import RealSenseCameraConfig  # noqa: F401
+from lerobot.cameras.realsense.configuration_realsense import (
+    RealSenseCameraConfig,  # noqa: F401
+)
 from lerobot.configs import parser
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.types import RTCAttentionSchedule
@@ -42,12 +42,13 @@ from lerobot.robots import (  # noqa: F401
 from lerobot.robots.utils import make_robot_from_config
 from lerobot.utils.constants import OBS_IMAGES
 from lerobot.utils.hub import HubMixin
-from lerobot.utils.utils import init_logging
 from lerobot.utils.import_utils import register_third_party_devices
-
+from lerobot.utils.utils import init_logging
+from torch import Tensor
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class RobotWrapper:
     def __init__(self, robot: Robot):
@@ -70,12 +71,16 @@ class RobotWrapper:
         with self.lock:
             return self.robot.action_features
 
+
 @dataclass
 class RTCDemoConfig(HubMixin):
     """Configuration for RTC demo with action chunking policies and real robots."""
 
     # Policy configuration
     policy: PreTrainedConfig | None = None
+
+    # Close box policy configuration (optional, falls back to policy if not specified)
+    close_box_policy: PreTrainedConfig | None = None
 
     # Robot configuration
     robot: RobotConfig | None = None
@@ -111,7 +116,9 @@ class RTCDemoConfig(HubMixin):
 
     torch_compile_backend: str = field(
         default="inductor",
-        metadata={"help": "Backend for torch.compile (inductor, aot_eager, cudagraphs)"},
+        metadata={
+            "help": "Backend for torch.compile (inductor, aot_eager, cudagraphs)"
+        },
     )
 
     torch_compile_mode: str = field(
@@ -123,19 +130,33 @@ class RTCDemoConfig(HubMixin):
         default=True,
         metadata={
             "help": "Disable CUDA graphs in torch.compile. Required due to in-place tensor "
-                    "operations in denoising loop (x_t += dt * v_t) which cause tensor aliasing issues."
+            "operations in denoising loop (x_t += dt * v_t) which cause tensor aliasing issues."
         },
     )
 
     def __post_init__(self):
         # HACK: We parse again the cli args here to get the pretrained path if there was one.
-        policy_path = parser.get_path_arg("policy")
-        if policy_path:
-            cli_overrides = parser.get_cli_overrides("policy")
-            self.policy = PreTrainedConfig.from_pretrained(policy_path, cli_overrides=cli_overrides)
-            self.policy.pretrained_path = policy_path
-        else:
-            raise ValueError("Policy path is required")
+        # If policy is already set (programmatic construction), skip CLI parsing
+        if self.policy is None:
+            policy_path = parser.get_path_arg("policy")
+            if policy_path:
+                cli_overrides = parser.get_cli_overrides("policy")
+                self.policy = PreTrainedConfig.from_pretrained(
+                    policy_path, cli_overrides=cli_overrides
+                )
+                self.policy.pretrained_path = policy_path
+            else:
+                raise ValueError("Policy path is required")
+
+        # Load close_box_policy if specified
+        if self.close_box_policy is None:
+            close_box_policy_path = parser.get_path_arg("close_box_policy")
+            if close_box_policy_path:
+                cli_overrides = parser.get_cli_overrides("close_box_policy")
+                self.close_box_policy = PreTrainedConfig.from_pretrained(
+                    close_box_policy_path, cli_overrides=cli_overrides
+                )
+                self.close_box_policy.pretrained_path = close_box_policy_path
 
         # Validate that robot configuration is provided
         if self.robot is None:
@@ -144,7 +165,7 @@ class RTCDemoConfig(HubMixin):
     @classmethod
     def __get_path_fields__(cls) -> list[str]:
         """This enables the parser to load config from the policy using `--policy.path=local/dir`"""
-        return ["policy"]
+        return ["policy", "close_box_policy"]
 
 
 def is_image_key(k: str) -> bool:
@@ -152,12 +173,14 @@ def is_image_key(k: str) -> bool:
 
 
 def get_actions(
-        policy,
-        robot: RobotWrapper,
-        robot_observation_processor,
-        action_queue: ActionQueue,
-        shutdown_event: Event,
-        cfg: RTCDemoConfig,
+    policy,
+    robot: RobotWrapper,
+    robot_observation_processor,
+    action_queue: ActionQueue,
+    shutdown_event: Event,
+    cfg: RTCDemoConfig,
+    policy_cfg: PreTrainedConfig,
+    task_override: str | None = None,
 ):
     """Thread function to request action chunks from the policy.
 
@@ -168,6 +191,8 @@ def get_actions(
         action_queue: Queue to put new action chunks
         shutdown_event: Event to signal shutdown
         cfg: Demo configuration
+        policy_cfg: PreTrainedConfig for the policy (used for loading processors)
+        task_override: Optional task string to override cfg.task
     """
     try:
         logger.info("[GET_ACTIONS] Starting get actions thread")
@@ -176,23 +201,29 @@ def get_actions(
         fps = cfg.fps
         time_per_chunk = 1.0 / fps
 
-        dataset_features = hw_to_dataset_features(robot.observation_features(), "observation")
+        dataset_features = hw_to_dataset_features(
+            robot.observation_features(), "observation"
+        )
         policy_device = policy.config.device
 
         # Load preprocessor and postprocessor from pretrained files
         # The stats are embedded in the processor .safetensors files
-        logger.info(f"[GET_ACTIONS] Loading preprocessor/postprocessor from {cfg.policy.pretrained_path}")
+        logger.info(
+            f"[GET_ACTIONS] Loading preprocessor/postprocessor from {policy_cfg.pretrained_path}"
+        )
 
         preprocessor, postprocessor = make_pre_post_processors(
-            policy_cfg=cfg.policy,
-            pretrained_path=cfg.policy.pretrained_path,
+            policy_cfg=policy_cfg,
+            pretrained_path=policy_cfg.pretrained_path,
             dataset_stats=None,  # Will load from pretrained processor files
             preprocessor_overrides={
-                "device_processor": {"device": cfg.policy.device},
+                "device_processor": {"device": policy_cfg.device},
             },
         )
 
-        logger.info("[GET_ACTIONS] Preprocessor/postprocessor loaded successfully with embedded stats")
+        logger.info(
+            "[GET_ACTIONS] Preprocessor/postprocessor loaded successfully with embedded stats"
+        )
 
         get_actions_threshold = cfg.action_queue_size_to_get_new_actions
 
@@ -218,23 +249,63 @@ def get_actions(
                 )
 
                 for name in obs_with_policy_features:
-                    obs_with_policy_features[name] = torch.from_numpy(obs_with_policy_features[name])
+                    obs_with_policy_features[name] = torch.from_numpy(
+                        obs_with_policy_features[name]
+                    )
                     if "image" in name:
                         obs_with_policy_features[name] = (
-                                obs_with_policy_features[name].type(torch.float32) / 255
+                            obs_with_policy_features[name].type(torch.float32) / 255
                         )
                         obs_with_policy_features[name] = (
                             obs_with_policy_features[name].permute(2, 0, 1).contiguous()
                         )
-                    obs_with_policy_features[name] = obs_with_policy_features[name].unsqueeze(0)
-                    obs_with_policy_features[name] = obs_with_policy_features[name].to(policy_device)
+                    obs_with_policy_features[name] = obs_with_policy_features[
+                        name
+                    ].unsqueeze(0)
+                    obs_with_policy_features[name] = obs_with_policy_features[name].to(
+                        policy_device
+                    )
 
-                obs_with_policy_features["task"] = [cfg.task]  # Task should be a list, not a string!
+                # Use task_override if provided, otherwise use cfg.task
+                task_str = (
+                    task_override
+                    if (task_override is not None and task_override != "")
+                    else cfg.task
+                )
+                # Log the task being used (only log once per episode to avoid spam)
+                if (
+                    not hasattr(get_actions, "_last_logged_task")
+                    or get_actions._last_logged_task != task_str
+                ):
+                    logger.info(
+                        f"[GET_ACTIONS] Using task: '{task_str}' (task_override='{task_override}', cfg.task='{cfg.task}')"
+                    )
+                    get_actions._last_logged_task = task_str
+                obs_with_policy_features["task"] = [
+                    task_str
+                ]  # Task should be a list, not a string!
+                # Log task value before preprocessing (only once per episode)
+                if not hasattr(get_actions, "_last_logged_obs_task"):
+                    logger.info(
+                        f"[GET_ACTIONS] obs_with_policy_features['task'] before preprocessing: {obs_with_policy_features['task']}"
+                    )
+                    get_actions._last_logged_obs_task = task_str
                 obs_with_policy_features["robot_type"] = (
                     robot.robot.name if hasattr(robot.robot, "name") else ""
                 )
 
                 preproceseded_obs = preprocessor(obs_with_policy_features)
+                # Log task value after preprocessing (only once per episode)
+                if not hasattr(get_actions, "_last_logged_preprocessed_task"):
+                    if "task" in preproceseded_obs:
+                        logger.info(
+                            f"[GET_ACTIONS] preproceseded_obs['task'] after preprocessing: {preproceseded_obs['task']}"
+                        )
+                    else:
+                        logger.warning(
+                            "[GET_ACTIONS] 'task' key not found in preproceseded_obs after preprocessing!"
+                        )
+                    get_actions._last_logged_preprocessed_task = task_str
 
                 # Generate actions WITH RTC
                 actions = policy.predict_action_chunk(
@@ -254,13 +325,19 @@ def get_actions(
                 new_delay = math.ceil(new_latency / time_per_chunk)
                 latency_tracker.add(new_latency)
 
-                if cfg.action_queue_size_to_get_new_actions < cfg.rtc.execution_horizon + new_delay:
+                if (
+                    cfg.action_queue_size_to_get_new_actions
+                    < cfg.rtc.execution_horizon + new_delay
+                ):
                     logger.warning(
                         "[GET_ACTIONS] cfg.action_queue_size_to_get_new_actions Too small, It should be higher than inference delay + execution horizon."
                     )
 
                 action_queue.merge(
-                    original_actions, postprocessed_actions, new_delay, action_index_before_inference
+                    original_actions,
+                    postprocessed_actions,
+                    new_delay,
+                    action_index_before_inference,
                 )
             else:
                 # Small sleep to prevent busy waiting
@@ -274,11 +351,11 @@ def get_actions(
 
 
 def actor_control(
-        robot: RobotWrapper,
-        robot_action_processor,
-        action_queue: ActionQueue,
-        shutdown_event: Event,
-        cfg: RTCDemoConfig,
+    robot: RobotWrapper,
+    robot_action_processor,
+    action_queue: ActionQueue,
+    shutdown_event: Event,
+    cfg: RTCDemoConfig,
 ):
     """Thread function to execute actions on the robot.
 
@@ -302,7 +379,10 @@ def actor_control(
 
             if action is not None:
                 action = action.cpu()
-                action_dict = {key: action[i].item() for i, key in enumerate(robot.action_features())}
+                action_dict = {
+                    key: action[i].item()
+                    for i, key in enumerate(robot.action_features())
+                }
                 action_processed = robot_action_processor((action_dict, None))
                 robot.send_action(action_processed)
 
@@ -311,7 +391,9 @@ def actor_control(
             dt_s = time.perf_counter() - start_time
             time.sleep(max(0, (action_interval - dt_s) - 0.001))
 
-        logger.info(f"[ACTOR] Actor thread shutting down. Total actions executed: {action_count}")
+        logger.info(
+            f"[ACTOR] Actor thread shutting down. Total actions executed: {action_count}"
+        )
     except Exception as e:
         logger.error(f"[ACTOR] Fatal exception in actor_control thread: {e}")
         logger.error(traceback.format_exc())
@@ -397,7 +479,6 @@ def demo_cli(cfg: RTCDemoConfig):
         config.input_features = cfg.policy.input_features
         config.output_features = cfg.policy.output_features
 
-
     if cfg.policy.type == "pi05" or cfg.policy.type == "pi0":
         config.compile_model = cfg.use_torch_compile
 
@@ -410,7 +491,11 @@ def demo_cli(cfg: RTCDemoConfig):
     # The processor won't be created
     policy.init_rtc_processor()
 
-    assert policy.name in ["smolvla", "pi05", "pi0"], "Only smolvla, pi05, and pi0 are supported for RTC"
+    assert policy.name in [
+        "smolvla",
+        "pi05",
+        "pi0",
+    ], "Only smolvla, pi05, and pi0 are supported for RTC"
 
     policy = policy.to(cfg.device)
     policy.eval()
@@ -435,7 +520,15 @@ def demo_cli(cfg: RTCDemoConfig):
     # Start chunk requester thread
     get_actions_thread = Thread(
         target=get_actions,
-        args=(policy, robot_wrapper, robot_observation_processor, action_queue, shutdown_event, cfg),
+        args=(
+            policy,
+            robot_wrapper,
+            robot_observation_processor,
+            action_queue,
+            shutdown_event,
+            cfg,
+            cfg.policy,
+        ),
         daemon=True,
         name="GetActions",
     )
@@ -488,6 +581,135 @@ def demo_cli(cfg: RTCDemoConfig):
         logger.info("Robot disconnected")
 
     logger.info("Cleanup completed")
+
+
+def run_episode(
+    policy,
+    robot: RobotWrapper,
+    robot_observation_processor,
+    robot_action_processor,
+    shutdown_event: Event,
+    cfg: RTCDemoConfig,
+    policy_cfg: PreTrainedConfig,
+    task: str,
+    duration: float,
+    get_actions_thread: Thread | None = None,
+    actor_thread: Thread | None = None,
+) -> tuple[Thread, Thread, ActionQueue]:
+    """Run a single episode with the given task.
+
+    Args:
+        policy: Already initialized policy instance
+        robot: Already initialized robot wrapper
+        policy_cfg: PreTrainedConfig for the policy (used for loading processors)
+        robot_observation_processor: Already initialized observation processor
+        robot_action_processor: Already initialized action processor
+        shutdown_event: Shutdown event (will be cleared at start)
+        cfg: Demo configuration
+        task: Task prompt string
+        duration: Episode duration in seconds
+        get_actions_thread: Optional existing get_actions thread (will be stopped if provided)
+        actor_thread: Optional existing actor thread (will be stopped if provided)
+
+    Returns:
+        Tuple of (get_actions_thread, actor_thread, action_queue)
+    """
+    # Stop existing threads if provided (ensure they are fully stopped)
+    if get_actions_thread is not None and get_actions_thread.is_alive():
+        logger.info("[RUN_EPISODE] Stopping existing get_actions thread...")
+        shutdown_event.set()
+        get_actions_thread.join(timeout=5.0)
+        if get_actions_thread.is_alive():
+            logger.warning(
+                "[RUN_EPISODE] Existing get_actions thread did not stop in time"
+            )
+    if actor_thread is not None and actor_thread.is_alive():
+        logger.info("[RUN_EPISODE] Stopping existing actor thread...")
+        shutdown_event.set()
+        actor_thread.join(timeout=5.0)
+        if actor_thread.is_alive():
+            logger.warning("[RUN_EPISODE] Existing actor thread did not stop in time")
+
+    # Create new action queue and reset shutdown event
+    action_queue = ActionQueue(cfg.rtc)
+    shutdown_event.clear()
+
+    # Small delay to ensure threads are fully stopped
+    time.sleep(0.5)
+
+    # Reset the last logged task to force logging the new task
+    if hasattr(get_actions, "_last_logged_task"):
+        delattr(get_actions, "_last_logged_task")
+    if hasattr(get_actions, "_last_logged_obs_task"):
+        delattr(get_actions, "_last_logged_obs_task")
+    if hasattr(get_actions, "_last_logged_preprocessed_task"):
+        delattr(get_actions, "_last_logged_preprocessed_task")
+
+    # Start chunk requester thread with task override
+    # Always create a new thread to ensure the task is updated
+    logger.info(f"[RUN_EPISODE] Creating new get_actions thread with task: '{task}'")
+    logger.info(f"[RUN_EPISODE] cfg.task = '{cfg.task}', task_override = '{task}'")
+    get_actions_thread_new = Thread(
+        target=get_actions,
+        args=(
+            policy,
+            robot,
+            robot_observation_processor,
+            action_queue,
+            shutdown_event,
+            cfg,
+            policy_cfg,
+            task,  # task_override - this will be used instead of cfg.task
+        ),
+        daemon=True,
+        name=f"GetActions-{task[:20]}",  # Include task in thread name for debugging
+    )
+    get_actions_thread_new.start()
+    logger.info(f"[RUN_EPISODE] Started NEW get actions thread with task: '{task}'")
+
+    # Start action executor thread
+    actor_thread_new = Thread(
+        target=actor_control,
+        args=(robot, robot_action_processor, action_queue, shutdown_event, cfg),
+        daemon=True,
+        name="Actor",
+    )
+    actor_thread_new.start()
+    logger.info("[RUN_EPISODE] Started actor thread")
+
+    # Run for duration
+    logger.info(
+        f"[RUN_EPISODE] Running episode for {duration} seconds with task: {task}"
+    )
+    start_time = time.time()
+
+    while not shutdown_event.is_set() and (time.time() - start_time) < duration:
+        time.sleep(1.0)
+
+        # Log queue status periodically
+        if int(time.time() - start_time) % 5 == 0:
+            logger.info(f"[RUN_EPISODE] Action queue size: {action_queue.qsize()}")
+
+        if time.time() - start_time > duration:
+            break
+
+    logger.info("[RUN_EPISODE] Episode duration reached or shutdown requested")
+
+    # Signal shutdown
+    shutdown_event.set()
+
+    # Wait for threads to finish
+    if get_actions_thread_new.is_alive():
+        logger.info("[RUN_EPISODE] Waiting for chunk requester thread to finish...")
+        get_actions_thread_new.join(timeout=5.0)
+
+    if actor_thread_new.is_alive():
+        logger.info("[RUN_EPISODE] Waiting for action executor thread to finish...")
+        actor_thread_new.join(timeout=5.0)
+
+    logger.info("[RUN_EPISODE] Episode completed")
+
+    return get_actions_thread_new, actor_thread_new, action_queue
 
 
 if __name__ == "__main__":
