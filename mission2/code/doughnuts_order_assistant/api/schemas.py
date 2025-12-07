@@ -24,6 +24,16 @@ class CancelResponse(BaseModel):
     canceled: bool
 
 
+class OrderStatus(BaseModel):
+    """GET /orders/{request_id}/status のレスポンス。"""
+
+    request_id: str
+    stage: str  # WAITING, PUTTING_DONUT, CLOSING_LID, DONE, CANCELED, ERROR
+    progress: float = Field(ge=0.0, le=1.0)
+    message: str
+    done: bool  # DONE または ERROR の場合は true
+
+
 class EventType(str, Enum):
     STATUS_UPDATE = "status_update"
     COMPLETED = "completed"

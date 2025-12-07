@@ -137,91 +137,73 @@ function App() {
     }
   }
 
-  // SSE接続でステータスを監視
+  // ポーリングでステータスを監視
   useEffect(() => {
     if (state === 'loading' && requestId) {
       console.log('========================================')
-      console.log('SSE接続を開始します')
+      console.log('ポーリングを開始します')
       console.log('リクエストID:', requestId)
       console.log('========================================')
       
-      const eventSource = new EventSource(
-        `https://unsupervised-pyrochemically-graig.ngrok-free.dev/events`
-      )
-      
-      eventSource.onopen = () => {
-        console.log('========================================')
-        console.log('✅ SSE接続が開きました')
-        console.log('EventSourceの状態:', eventSource.readyState)
-        console.log('========================================')
-      }
-      
-      eventSource.onmessage = (event) => {
+      const pollStatus = async () => {
         try {
-          // "data: "プレフィックスを除去
-          const dataStr = event.data.startsWith('data: ') 
-            ? event.data.substring(6) 
-            : event.data
+          const response = await fetch(
+            `https://unsupervised-pyrochemically-graig.ngrok-free.dev/orders/${requestId}/status`,
+            {
+              method: 'GET',
+              headers: {
+                'accept': 'application/json',
+              },
+            }
+          )
           
-          const eventData = JSON.parse(dataStr)
-          
-          console.log('========================================')
-          console.log('📡 イベントを受信')
-          console.log('イベントタイプ:', eventData.type)
-          console.log('リクエストID:', eventData.request_id)
-          console.log('イベント全体:', JSON.stringify(eventData, null, 2))
-          console.log('========================================')
-          
-          // リクエストIDが一致する場合のみ処理
-          if (eventData.request_id !== requestId) {
+          if (!response.ok) {
+            console.error('ステータス取得エラー:', response.status)
             return
           }
           
-          // イベントタイプに応じて処理を分岐
-          if (eventData.type === 'completed') {
-            const completedEvent = eventData as CompletedEvent
+          const data = await response.json()
+          
+          console.log('========================================')
+          console.log('📡 ステータスを取得')
+          console.log('ステージ:', data.stage)
+          console.log('進捗:', data.progress)
+          console.log('メッセージ:', data.message)
+          console.log('完了:', data.done)
+          console.log('========================================')
+          
+          // ステータスを更新
+          setLoadingStatus({
+            type: 'status_update',
+            request_id: data.request_id,
+            stage: data.stage as LoadingStage,
+            progress: data.progress,
+            message: data.message,
+          })
+          
+          // 完了判定
+          if (data.done) {
             console.log('========================================')
-            console.log('✅ 完了イベントを受信')
-            console.log('結果:', completedEvent.result)
+            console.log('✅ 注文が完了しました')
             console.log('========================================')
             
-            // 完了画面に遷移
             setTimeout(() => {
               setState('complete')
-              eventSource.close()
             }, 1000)
-          } else if (eventData.type === 'status_update') {
-            const statusUpdate = eventData as StatusUpdate
-            console.log('========================================')
-            console.log('📡 ステータス更新を受信')
-            console.log('ステージ:', statusUpdate.stage)
-            console.log('進捗:', statusUpdate.progress)
-            console.log('メッセージ:', statusUpdate.message)
-            console.log('========================================')
-            
-            // ステータスを更新（完了判定は行わない）
-            setLoadingStatus(statusUpdate)
           }
         } catch (error) {
-          console.error('イベントのパースエラー:', error)
+          console.error('ステータス取得のエラー:', error)
         }
       }
       
-      eventSource.onerror = (error) => {
-        console.error('========================================')
-        console.error('SSE接続エラー:', error)
-        console.error('EventSourceの状態:', eventSource.readyState)
-        console.error('EventSource.CONNECTING:', EventSource.CONNECTING)
-        console.error('EventSource.OPEN:', EventSource.OPEN)
-        console.error('EventSource.CLOSED:', EventSource.CLOSED)
-        console.error('========================================')
-        // エラー時は接続を閉じるだけ（完了画面には遷移しない）
-        // 接続が再確立される可能性があるため、すぐに閉じない
-        // eventSource.close()
-      }
+      // 初回は即座に実行
+      pollStatus()
+      
+      // 1秒ごとにポーリング
+      const intervalId = setInterval(pollStatus, 1000)
       
       return () => {
-        eventSource.close()
+        clearInterval(intervalId)
       }
     }
   }, [state, requestId])

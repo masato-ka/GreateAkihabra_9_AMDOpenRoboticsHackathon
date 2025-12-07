@@ -6,10 +6,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from robot_controller.vla_controller_rtc import RTCDemoConfig
 from robot_controller.worker import PersistentRobotWorker
 from services.orders import OrderService
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
 from state_controller.events import (
     iter_events,
     start_event_socket_server,
@@ -17,7 +19,7 @@ from state_controller.events import (
 )
 from state_controller.machine import OrderStateManager
 
-from .schemas import CancelResponse, OrderCreated, OrderRequest
+from .schemas import CancelResponse, OrderCreated, OrderRequest, OrderStatus
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Doughnuts Order Assistant Gateway", lifespan=lifespan)
 
+
+# ngrokの警告ページをスキップするためのミドルウェア
+class NgrokSkipBrowserWarningMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # ngrok-skip-browser-warningヘッダーを追加
+        request.headers.__dict__["_list"].append(
+            (b"ngrok-skip-browser-warning", b"true")
+        )
+        response = await call_next(request)
+        return response
+
+
+# ngrokの警告ページをスキップするミドルウェアを追加（CORSより前に）
+app.add_middleware(NgrokSkipBrowserWarningMiddleware)
+
 # CORS設定を追加
 app.add_middleware(
     CORSMiddleware,
@@ -75,6 +92,15 @@ def get_order_service() -> OrderService:
     return _order_service
 
 
+def get_state_manager() -> OrderStateManager:
+    global _state_manager
+    if _state_manager is None:
+        raise RuntimeError(
+            "OrderStateManager not initialized. Worker may not have started."
+        )
+    return _state_manager
+
+
 @app.post("/orders", response_model=OrderCreated)
 async def create_order(
     body: OrderRequest,
@@ -84,6 +110,30 @@ async def create_order(
         flavor=body.flavor,
     )
     return OrderCreated(request_id=request_id)
+
+
+@app.get("/orders/{request_id}/status", response_model=OrderStatus)
+async def get_order_status(
+    request_id: str,
+    state_manager: OrderStateManager = Depends(get_state_manager),
+) -> OrderStatus:
+    """注文のステータスを取得する（ポーリング用）。"""
+    from state_controller.states import OrderPhase
+
+    state = state_manager.get_order(request_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="order not found")
+
+    # DONE または ERROR の場合は done: true
+    done = state.phase in (OrderPhase.DONE, OrderPhase.ERROR, OrderPhase.CANCELED)
+
+    return OrderStatus(
+        request_id=state.request_id,
+        stage=state.phase.name,
+        progress=state.progress,
+        message=state.message,
+        done=done,
+    )
 
 
 @app.post("/orders/{request_id}/cancel", response_model=CancelResponse)
@@ -110,7 +160,15 @@ async def sse_events(request: Request) -> StreamingResponse:
                 break
             yield line
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # nginx用の設定
+        },
+    )
 
 
 __all__ = ["app"]
