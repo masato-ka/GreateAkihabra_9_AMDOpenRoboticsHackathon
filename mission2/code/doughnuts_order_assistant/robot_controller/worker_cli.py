@@ -17,7 +17,7 @@ _DEFAULT_ARGS = [
     "--policy.device=cuda",
     "--robot.type=bi_so101_follower",
     "--robot.id=bi_robot",
-    "--robot.left_arm_port=/dev/ttyACM1",
+    "--robot.left_arm_port=/dev/ttyACM2",
     "--robot.right_arm_port=/dev/ttyACM2",
     "--robot.cameras={front: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}, back: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}",
     "--rtc.enabled=true",
@@ -65,12 +65,14 @@ def _extract_r_key_event_arg(args: list[str]) -> tuple[list[str], str | None]:
 
 def main():
     """メインエントリポイント: デフォルト引数を使用してworker_mainを呼び出す。"""
-    # コマンドライン引数があればそれを使用、なければデフォルトを使用
+    # デフォルト引数に対して、ユーザー指定の引数で「上書き・追加」する形にする
+    # こうすることで、`uv run worker --close_box_policy.path=...` のように
+    # 一部だけを指定しても、ポリシーやロボット設定のデフォルトは維持される
     if len(sys.argv) > 1:
-        # ユーザーが引数を指定した場合はそれを使用
-        raw_args = sys.argv[1:]
+        # デフォルト + ユーザー指定（後ろの方が優先される想定）
+        raw_args = _DEFAULT_ARGS + sys.argv[1:]
     else:
-        # デフォルト引数を使用（sys.argv[0]はスクリプト名なので、それに続けて追加）
+        # ユーザー引数が無い場合はデフォルトのみ
         raw_args = _DEFAULT_ARGS
 
     # カスタム引数 --r_key_event を取り出して環境変数に変換
