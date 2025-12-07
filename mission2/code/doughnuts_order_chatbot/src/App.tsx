@@ -26,6 +26,15 @@ interface StatusUpdate {
   message: string
 }
 
+interface CompletedEvent {
+  type: 'completed'
+  request_id: string
+  result: {
+    delivered: boolean
+    flavor: string
+  }
+}
+
 interface DonutWithEnglish extends Donut {
   nameEn: string
 }
@@ -147,30 +156,47 @@ function App() {
             ? event.data.substring(6) 
             : event.data
           
-          const statusUpdate: StatusUpdate = JSON.parse(dataStr)
+          const eventData = JSON.parse(dataStr)
           
           console.log('========================================')
-          console.log('📡 ステータス更新を受信')
-          console.log('ステージ:', statusUpdate.stage)
-          console.log('進捗:', statusUpdate.progress)
-          console.log('メッセージ:', statusUpdate.message)
-          console.log('リクエストID:', statusUpdate.request_id)
+          console.log('📡 イベントを受信')
+          console.log('イベントタイプ:', eventData.type)
+          console.log('リクエストID:', eventData.request_id)
+          console.log('イベント全体:', JSON.stringify(eventData, null, 2))
           console.log('========================================')
           
-          // リクエストIDが一致する場合のみ更新
-          if (statusUpdate.request_id === requestId) {
-            setLoadingStatus(statusUpdate)
+          // リクエストIDが一致する場合のみ処理
+          if (eventData.request_id !== requestId) {
+            return
+          }
+          
+          // イベントタイプに応じて処理を分岐
+          if (eventData.type === 'completed') {
+            const completedEvent = eventData as CompletedEvent
+            console.log('========================================')
+            console.log('✅ 完了イベントを受信')
+            console.log('結果:', completedEvent.result)
+            console.log('========================================')
             
-            // 完了判定（progressが1.0に近い、または特定の完了ステージ）
-            if (statusUpdate.progress >= 0.99 || statusUpdate.stage === 'COMPLETE') {
-              setTimeout(() => {
-                setState('complete')
-                eventSource.close()
-              }, 1000)
-            }
+            // 完了画面に遷移
+            setTimeout(() => {
+              setState('complete')
+              eventSource.close()
+            }, 1000)
+          } else if (eventData.type === 'status_update') {
+            const statusUpdate = eventData as StatusUpdate
+            console.log('========================================')
+            console.log('📡 ステータス更新を受信')
+            console.log('ステージ:', statusUpdate.stage)
+            console.log('進捗:', statusUpdate.progress)
+            console.log('メッセージ:', statusUpdate.message)
+            console.log('========================================')
+            
+            // ステータスを更新（完了判定は行わない）
+            setLoadingStatus(statusUpdate)
           }
         } catch (error) {
-          console.error('ステータス更新のパースエラー:', error)
+          console.error('イベントのパースエラー:', error)
         }
       }
       
