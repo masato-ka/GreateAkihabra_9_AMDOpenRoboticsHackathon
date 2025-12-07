@@ -33,7 +33,7 @@ _DEFAULT_ARGS = [
     '--close_box_policy.input_features={"observation.state": {"type": "STATE", "shape": [12]}}',
     # Rキー検出デバイスのデフォルト (必要に応じて変更)
     # カスタム引数として扱うので、後で worker_cli 内で処理してから main_cli に渡す
-    "--r_key_event=/dev/input/event17",
+    "--r_key_event=/dev/input/event8",
 ]
 
 
