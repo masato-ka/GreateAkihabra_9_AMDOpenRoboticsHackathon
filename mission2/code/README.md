@@ -9,9 +9,9 @@ Frontend (React + TypeScript) uses HTTP.
 
 ```mermaid
 flowchart LR
-    FE["Frontend: doughnuts_order_chatbot"]
-    API["API Server: api.app:app"]
-    WK["Robot Controller: worker (robot_controller/worker)"]
+    FE[doughnuts_order_chatbot]
+    API[doughnuts_order_assistant/api.app:app]
+    WK[doughnuts_order_assistant/robot_controller/worker]
 
     FE --> API
     API <--> WK
@@ -42,6 +42,20 @@ erDiagram
         enum ERROR
     }
 ```
+
+### アプリのビュー
+
+#### トップ画面
+![トップ画面](images/GreatAkihabara-Donuts-12-07-2025_01_45_PM.png)
+
+#### ドーナツを選択
+![ドーナツを選択](images/GreatAkihabara-Donuts-12-07-2025_01_49_PM.png)
+
+#### 進行画面
+![進行画面](images/GreatAkihabara-Donuts-12-07-2025_01_50_PM%20(1).png)
+
+#### 完了画面
+![完了画面](images/GreatAkihabara-Donuts-12-07-2025_01_50_PM.png)
 
 ## 起動方法
 
