@@ -5,8 +5,6 @@ import json
 import logging
 import os
 import socket
-import sys
-import time
 from dataclasses import dataclass
 from enum import Enum
 from threading import Event, Thread
@@ -18,8 +16,6 @@ from robot_controller.vla_controller_rtc import (
     RobotWrapper,
     RTCDemoConfig,
     _apply_torch_compile,
-    actor_control,
-    get_actions,
     run_episode,
 )
 from state_controller.machine import OrderStateManager
@@ -58,7 +54,8 @@ class PersistentRobotWorker:
     ) -> None:
         self._cfg = cfg
         self._state_manager = state_manager
-        self._policy = None
+        self._pick_policy = None
+        self._close_box_policy = None
         self._robot_wrapper: RobotWrapper | None = None
         self._robot_observation_processor = None
         self._robot_action_processor = None
@@ -119,10 +116,52 @@ class PersistentRobotWorker:
                 continue
         return None
 
-    def _initialize_model_and_robot(self) -> None:
-        """モデルとロボットを1回だけ初期化する。"""
+    def _load_policy_from_cfg(self, policy_cfg):
+        """共通のポリシーロード処理。
+
+        Args:
+            policy_cfg: PreTrainedConfig インスタンス
+        Returns:
+            ロードされたポリシーインスタンス
+        """
         from lerobot.configs.policies import PreTrainedConfig
         from lerobot.policies.factory import get_policy_class
+
+        policy_class = get_policy_class(policy_cfg.type)
+
+        # Load config
+        config = PreTrainedConfig.from_pretrained(policy_cfg.pretrained_path)
+
+        if policy_cfg.type == "smolvla":
+            config.input_features = policy_cfg.input_features
+            config.output_features = policy_cfg.output_features
+
+        if policy_cfg.type == "pi05" or policy_cfg.type == "pi0":
+            config.compile_model = self._cfg.use_torch_compile
+
+        policy = policy_class.from_pretrained(policy_cfg.pretrained_path, config=config)
+
+        # Turn on RTC
+        policy.config.rtc_config = self._cfg.rtc
+        policy.init_rtc_processor()
+
+        assert policy.name in [
+            "smolvla",
+            "pi05",
+            "pi0",
+        ], "Only smolvla, pi05, and pi0 are supported for RTC"
+
+        policy = policy.to(self._cfg.device)
+        policy.eval()
+
+        # Apply torch.compile if enabled
+        if self._cfg.use_torch_compile:
+            policy = _apply_torch_compile(policy, self._cfg)
+
+        return policy
+
+    def _initialize_model_and_robot(self) -> None:
+        """モデルとロボットを1回だけ初期化する。"""
         from lerobot.processor.factory import (
             make_default_robot_action_processor,
             make_default_robot_observation_processor,
@@ -134,38 +173,23 @@ class PersistentRobotWorker:
 
         logger.info("[WORKER] Initializing model and robot...")
 
-        policy_class = get_policy_class(self._cfg.policy.type)
-
-        # Load config
-        config = PreTrainedConfig.from_pretrained(self._cfg.policy.pretrained_path)
-
-        if self._cfg.policy.type == "smolvla":
-            config.input_features = self._cfg.policy.input_features
-            config.output_features = self._cfg.policy.output_features
-
-        if self._cfg.policy.type == "pi05" or self._cfg.policy.type == "pi0":
-            config.compile_model = self._cfg.use_torch_compile
-
-        self._policy = policy_class.from_pretrained(
-            self._cfg.policy.pretrained_path, config=config
+        # Load pick policy (main policy)
+        logger.info(
+            f"[WORKER] Loading pick policy from {self._cfg.policy.pretrained_path}"
         )
+        self._pick_policy = self._load_policy_from_cfg(self._cfg.policy)
 
-        # Turn on RTC
-        self._policy.config.rtc_config = self._cfg.rtc
-        self._policy.init_rtc_processor()
-
-        assert self._policy.name in [
-            "smolvla",
-            "pi05",
-            "pi0",
-        ], "Only smolvla, pi05, and pi0 are supported for RTC"
-
-        self._policy = self._policy.to(self._cfg.device)
-        self._policy.eval()
-
-        # Apply torch.compile if enabled
-        if self._cfg.use_torch_compile:
-            self._policy = _apply_torch_compile(self._policy, self._cfg)
+        # Load close box policy if specified, otherwise reuse pick policy
+        if self._cfg.close_box_policy is not None:
+            logger.info(
+                f"[WORKER] Loading close box policy from {self._cfg.close_box_policy.pretrained_path}"
+            )
+            self._close_box_policy = self._load_policy_from_cfg(
+                self._cfg.close_box_policy
+            )
+        else:
+            logger.info("[WORKER] Close box policy not specified, reusing pick policy")
+            self._close_box_policy = self._pick_policy
 
         # Create robot
         logger.info(f"[WORKER] Initializing robot: {self._cfg.robot.type}")
@@ -318,12 +342,13 @@ class PersistentRobotWorker:
                 return await loop.run_in_executor(
                     None,
                     run_episode,
-                    self._policy,
+                    self._pick_policy,
                     self._robot_wrapper,
                     self._robot_observation_processor,
                     self._robot_action_processor,
                     episode_shutdown,
                     self._cfg,
+                    self._cfg.policy,
                     task_phase1,
                     self._cfg.duration,
                     self._current_get_actions_thread,
@@ -407,6 +432,14 @@ class PersistentRobotWorker:
             # Phase 2: Close the box
             task_phase2 = "Please close the box."
 
+            # Determine which policy and config to use for Phase 2
+            phase2_policy = self._close_box_policy
+            phase2_policy_cfg = (
+                self._cfg.close_box_policy
+                if self._cfg.close_box_policy is not None
+                else self._cfg.policy
+            )
+
             await self._state_manager.set_phase(
                 request_id,
                 OrderPhase.CLOSING_LID,
@@ -416,6 +449,9 @@ class PersistentRobotWorker:
 
             logger.info(
                 f"[WORKER] Starting Phase 2 for order {request_id} with task: {task_phase2}"
+            )
+            logger.info(
+                f"[WORKER] Using policy: {phase2_policy_cfg.pretrained_path if phase2_policy_cfg else 'unknown'}"
             )
 
             # Run episode 2 and R-key detection in parallel
@@ -427,12 +463,13 @@ class PersistentRobotWorker:
                 return await loop.run_in_executor(
                     None,
                     run_episode,
-                    self._policy,
+                    phase2_policy,
                     self._robot_wrapper,
                     self._robot_observation_processor,
                     self._robot_action_processor,
                     episode_shutdown,
                     self._cfg,
+                    phase2_policy_cfg,
                     task_phase2,
                     self._cfg.duration,
                     self._current_get_actions_thread,

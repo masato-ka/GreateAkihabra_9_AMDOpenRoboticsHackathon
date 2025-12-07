@@ -79,6 +79,9 @@ class RTCDemoConfig(HubMixin):
     # Policy configuration
     policy: PreTrainedConfig | None = None
 
+    # Close box policy configuration (optional, falls back to policy if not specified)
+    close_box_policy: PreTrainedConfig | None = None
+
     # Robot configuration
     robot: RobotConfig | None = None
 
@@ -145,6 +148,16 @@ class RTCDemoConfig(HubMixin):
             else:
                 raise ValueError("Policy path is required")
 
+        # Load close_box_policy if specified
+        if self.close_box_policy is None:
+            close_box_policy_path = parser.get_path_arg("close_box_policy")
+            if close_box_policy_path:
+                cli_overrides = parser.get_cli_overrides("close_box_policy")
+                self.close_box_policy = PreTrainedConfig.from_pretrained(
+                    close_box_policy_path, cli_overrides=cli_overrides
+                )
+                self.close_box_policy.pretrained_path = close_box_policy_path
+
         # Validate that robot configuration is provided
         if self.robot is None:
             raise ValueError("Robot configuration must be provided")
@@ -152,7 +165,7 @@ class RTCDemoConfig(HubMixin):
     @classmethod
     def __get_path_fields__(cls) -> list[str]:
         """This enables the parser to load config from the policy using `--policy.path=local/dir`"""
-        return ["policy"]
+        return ["policy", "close_box_policy"]
 
 
 def is_image_key(k: str) -> bool:
@@ -166,6 +179,7 @@ def get_actions(
     action_queue: ActionQueue,
     shutdown_event: Event,
     cfg: RTCDemoConfig,
+    policy_cfg: PreTrainedConfig,
     task_override: str | None = None,
 ):
     """Thread function to request action chunks from the policy.
@@ -177,6 +191,7 @@ def get_actions(
         action_queue: Queue to put new action chunks
         shutdown_event: Event to signal shutdown
         cfg: Demo configuration
+        policy_cfg: PreTrainedConfig for the policy (used for loading processors)
         task_override: Optional task string to override cfg.task
     """
     try:
@@ -194,15 +209,15 @@ def get_actions(
         # Load preprocessor and postprocessor from pretrained files
         # The stats are embedded in the processor .safetensors files
         logger.info(
-            f"[GET_ACTIONS] Loading preprocessor/postprocessor from {cfg.policy.pretrained_path}"
+            f"[GET_ACTIONS] Loading preprocessor/postprocessor from {policy_cfg.pretrained_path}"
         )
 
         preprocessor, postprocessor = make_pre_post_processors(
-            policy_cfg=cfg.policy,
-            pretrained_path=cfg.policy.pretrained_path,
+            policy_cfg=policy_cfg,
+            pretrained_path=policy_cfg.pretrained_path,
             dataset_stats=None,  # Will load from pretrained processor files
             preprocessor_overrides={
-                "device_processor": {"device": cfg.policy.device},
+                "device_processor": {"device": policy_cfg.device},
             },
         )
 
@@ -252,17 +267,28 @@ def get_actions(
                     )
 
                 # Use task_override if provided, otherwise use cfg.task
-                task_str = task_override if (task_override is not None and task_override != "") else cfg.task
+                task_str = (
+                    task_override
+                    if (task_override is not None and task_override != "")
+                    else cfg.task
+                )
                 # Log the task being used (only log once per episode to avoid spam)
-                if not hasattr(get_actions, "_last_logged_task") or get_actions._last_logged_task != task_str:
-                    logger.info(f"[GET_ACTIONS] Using task: '{task_str}' (task_override='{task_override}', cfg.task='{cfg.task}')")
+                if (
+                    not hasattr(get_actions, "_last_logged_task")
+                    or get_actions._last_logged_task != task_str
+                ):
+                    logger.info(
+                        f"[GET_ACTIONS] Using task: '{task_str}' (task_override='{task_override}', cfg.task='{cfg.task}')"
+                    )
                     get_actions._last_logged_task = task_str
                 obs_with_policy_features["task"] = [
                     task_str
                 ]  # Task should be a list, not a string!
                 # Log task value before preprocessing (only once per episode)
                 if not hasattr(get_actions, "_last_logged_obs_task"):
-                    logger.info(f"[GET_ACTIONS] obs_with_policy_features['task'] before preprocessing: {obs_with_policy_features['task']}")
+                    logger.info(
+                        f"[GET_ACTIONS] obs_with_policy_features['task'] before preprocessing: {obs_with_policy_features['task']}"
+                    )
                     get_actions._last_logged_obs_task = task_str
                 obs_with_policy_features["robot_type"] = (
                     robot.robot.name if hasattr(robot.robot, "name") else ""
@@ -272,9 +298,13 @@ def get_actions(
                 # Log task value after preprocessing (only once per episode)
                 if not hasattr(get_actions, "_last_logged_preprocessed_task"):
                     if "task" in preproceseded_obs:
-                        logger.info(f"[GET_ACTIONS] preproceseded_obs['task'] after preprocessing: {preproceseded_obs['task']}")
+                        logger.info(
+                            f"[GET_ACTIONS] preproceseded_obs['task'] after preprocessing: {preproceseded_obs['task']}"
+                        )
                     else:
-                        logger.warning("[GET_ACTIONS] 'task' key not found in preproceseded_obs after preprocessing!")
+                        logger.warning(
+                            "[GET_ACTIONS] 'task' key not found in preproceseded_obs after preprocessing!"
+                        )
                     get_actions._last_logged_preprocessed_task = task_str
 
                 # Generate actions WITH RTC
@@ -497,6 +527,7 @@ def demo_cli(cfg: RTCDemoConfig):
             action_queue,
             shutdown_event,
             cfg,
+            cfg.policy,
         ),
         daemon=True,
         name="GetActions",
@@ -559,6 +590,7 @@ def run_episode(
     robot_action_processor,
     shutdown_event: Event,
     cfg: RTCDemoConfig,
+    policy_cfg: PreTrainedConfig,
     task: str,
     duration: float,
     get_actions_thread: Thread | None = None,
@@ -569,6 +601,7 @@ def run_episode(
     Args:
         policy: Already initialized policy instance
         robot: Already initialized robot wrapper
+        policy_cfg: PreTrainedConfig for the policy (used for loading processors)
         robot_observation_processor: Already initialized observation processor
         robot_action_processor: Already initialized action processor
         shutdown_event: Shutdown event (will be cleared at start)
@@ -587,7 +620,9 @@ def run_episode(
         shutdown_event.set()
         get_actions_thread.join(timeout=5.0)
         if get_actions_thread.is_alive():
-            logger.warning("[RUN_EPISODE] Existing get_actions thread did not stop in time")
+            logger.warning(
+                "[RUN_EPISODE] Existing get_actions thread did not stop in time"
+            )
     if actor_thread is not None and actor_thread.is_alive():
         logger.info("[RUN_EPISODE] Stopping existing actor thread...")
         shutdown_event.set()
@@ -598,7 +633,7 @@ def run_episode(
     # Create new action queue and reset shutdown event
     action_queue = ActionQueue(cfg.rtc)
     shutdown_event.clear()
-    
+
     # Small delay to ensure threads are fully stopped
     time.sleep(0.5)
 
@@ -623,6 +658,7 @@ def run_episode(
             action_queue,
             shutdown_event,
             cfg,
+            policy_cfg,
             task,  # task_override - this will be used instead of cfg.task
         ),
         daemon=True,
