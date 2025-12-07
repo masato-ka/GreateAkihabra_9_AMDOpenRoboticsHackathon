@@ -28,6 +28,9 @@ _DEFAULT_ARGS = [
     "--use_torch_compile=false",
     '--policy.input_features={"observation.state": {"type": "STATE", "shape": [12]}}',
     '--policy.output_features={"action": {"type": "ACTION", "shape": [12]}}',
+    # close_box_policy の output_features も 12 次元に設定（bi_so101_follower と同じ）
+    '--close_box_policy.output_features={"action": {"type": "ACTION", "shape": [12]}}',
+    '--close_box_policy.input_features={"observation.state": {"type": "STATE", "shape": [12]}}',
     # Rキー検出デバイスのデフォルト (必要に応じて変更)
     # カスタム引数として扱うので、後で worker_cli 内で処理してから main_cli に渡す
     "--r_key_event=/dev/input/event17",
