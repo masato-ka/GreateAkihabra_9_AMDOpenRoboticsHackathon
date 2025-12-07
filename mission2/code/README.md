@@ -52,10 +52,10 @@ erDiagram
 ![ドーナツを選択](images/GreatAkihabara-Donuts-12-07-2025_01_49_PM.png)
 
 #### 進行画面
-![進行画面](images/GreatAkihabara-Donuts-12-07-2025_01_50_PM%20(1).png)
+![進行画面](images/GreatAkihabara-Donuts-12-07-2025_01_50_PM.png)
 
 #### 完了画面
-![完了画面](images/GreatAkihabara-Donuts-12-07-2025_01_50_PM.png)
+![完了画面](images/GreatAkihabara-Donuts-12-07-2025_01_50_PM%20(1).png)
 
 ## 起動方法
 
