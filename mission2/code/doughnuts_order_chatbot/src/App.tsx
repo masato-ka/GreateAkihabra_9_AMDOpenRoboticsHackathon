@@ -149,6 +149,13 @@ function App() {
         `https://unsupervised-pyrochemically-graig.ngrok-free.dev/events`
       )
       
+      eventSource.onopen = () => {
+        console.log('========================================')
+        console.log('✅ SSE接続が開きました')
+        console.log('EventSourceの状態:', eventSource.readyState)
+        console.log('========================================')
+      }
+      
       eventSource.onmessage = (event) => {
         try {
           // "data: "プレフィックスを除去
@@ -201,12 +208,16 @@ function App() {
       }
       
       eventSource.onerror = (error) => {
+        console.error('========================================')
         console.error('SSE接続エラー:', error)
-        eventSource.close()
-        // エラー時は一定時間後に完了画面に遷移（フォールバック）
-        setTimeout(() => {
-          setState('complete')
-        }, 5000)
+        console.error('EventSourceの状態:', eventSource.readyState)
+        console.error('EventSource.CONNECTING:', EventSource.CONNECTING)
+        console.error('EventSource.OPEN:', EventSource.OPEN)
+        console.error('EventSource.CLOSED:', EventSource.CLOSED)
+        console.error('========================================')
+        // エラー時は接続を閉じるだけ（完了画面には遷移しない）
+        // 接続が再確立される可能性があるため、すぐに閉じない
+        // eventSource.close()
       }
       
       return () => {
