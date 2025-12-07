@@ -9,7 +9,7 @@
 **Summary:** We worked on automating takeout at a doughnut shop. After receiving orders from customers, robots controlled by VLA pack the ordered doughnuts.
 
 *[This is final result VIDEO this Application NO9GreateAkihabara_AMDHackathon.mp4](https://resv2.craft.do/user/full/7e1bcac5-12e5-0648-9cd4-f316c4cdd8bc/doc/D6497AC6-3DF3-436B-84D3-3F6B771F9A4E/7E75AB0C-EB86-43A5-8501-C2BFEC25DB00_2/BSUnWVPreEv8dfxNLgypMB6Oqe3qYJVzfdRl3mhMUKsz/NO9GreateAkihabara_AMDHackathon.mp4)
-
+[GreatAkihabara Donuts.mp4](https://resv2.craft.do/user/full/7e1bcac5-12e5-0648-9cd4-f316c4cdd8bc/doc/D6497AC6-3DF3-436B-84D3-3F6B771F9A4E/BFD5AE59-2237-4F04-893B-1452D9353366_2/0luGK5NWro8kToo0Pxa3ITN3BEraA0NAxscBztTlcEYz/GreatAkihabara%20Donuts.mp4)
 ## Submission Details
 
 ### 1. Mission Description
