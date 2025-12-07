@@ -7,26 +7,14 @@ Frontend (React + TypeScript) uses HTTP.
 
 ### システム構成図
 
-```
-┌─────────────────────────┐
-│  フロントエンド          │
-│  (React + TypeScript)   │
-│  doughnuts_order_chatbot │
-└──────────┬──────────────┘
-           │ HTTP
-           │
-┌──────────▼──────────────┐
-│   API Server            │
-│   (FastAPI)             │
-│   api.app:app           │
-└──────────┬──────────────┘
-           │ Unix Socket
-           │
-┌──────────▼──────────────┐
-│  Robot Controller       │
-│  (Worker Process)       │
-│  robot_controller/worker│
-└─────────────────────────┘
+```mermaid
+flowchart LR
+    FE["Frontend: doughnuts_order_chatbot"]
+    API["API Server: api.app:app"]
+    WK["Robot Controller: worker (robot_controller/worker)"]
+
+    FE --> API
+    API <--> WK
 ```
 
 ### ER図
@@ -123,21 +111,21 @@ npm run dev
   - Returns: `{"request_id": "..."}`
 - **POST `/orders/{request_id}/cancel`**
   - Returns: `{"canceled": true}`
-- **GET `/events`** (SSE)
-  - `Content-Type: text/event-stream`
-  - `data:` payload examples:
-    - Status:
-      ```json
-      {"type":"status_update","request_id":"...","stage":"PUTTING_DONUT","progress":0.5,"message":"Putting doughnuts into the box..."}
-      ```
-    - Completed:
-      ```json
-      {"type":"completed","request_id":"...","result":{"delivered":true,"flavor":"chocolate"}}
-      ```
-    - Error:
-      ```json
-      {"type":"error","request_id":"...","message":"robot error ..."}
-      ```
+- **GET `/orders/{request_id}/status`**
+  - フロントエンド（`doughnuts_order_chatbot`）からポーリングされるステータス取得用API
+  - Returns (例):
+    ```json
+    {
+      "request_id": "...",
+      "stage": "PUTTING_DONUT",
+      "progress": 0.5,
+      "message": "Putting doughnuts into the box...",
+      "done": false
+    }
+    ```
+  - `stage` は `WAITING` / `PUTTING_DONUT` / `CLOSING_LID` / `DONE` / `CANCELED` / `ERROR` のいずれか
+
+※ `GET /events` (SSE) は旧フロントエンド向けのエンドポイントで、本構成では非推奨です（必要ならデバッグ用途としてのみ使用してください）。
 
 ### State management (`state_controller`)
 - Phases: `WAITING` → `PUTTING_DONUT` → `CLOSING_LID` → `DONE` (or `CANCELED` / `ERROR`)
