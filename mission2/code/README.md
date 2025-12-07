@@ -63,46 +63,19 @@ erDiagram
 
 **注意**: ロボットコントローラーは、so101が繋がっているPCで動かす必要があります。
 
-**Option A: Using the `worker` command (after `uv sync` on Linux)**:
 ```bash
 cd mission2/code/doughnuts_order_assistant
-uv sync  # Run this once on Linux to register the script
-uv run worker  # Uses default arguments
-# Or override specific arguments:
-uv run worker --duration=60 --device=cpu
-```
-
-**Option B: Using the module directly (works everywhere, recommended)**:
-```bash
-cd mission2/code/doughnuts_order_assistant
-uv run python -m robot_controller.worker_cli  # Uses default arguments
-# Or override specific arguments:
-uv run python -m robot_controller.worker_cli --duration=60 --device=cpu
-```
-
-**Option C: Using worker_main with full arguments**:
-```bash
-cd mission2/code/doughnuts_order_assistant
-uv run python -m robot_controller.worker_main \
-  --policy.path=masato-ka/smolvla-donuts-shop-v1 \
-  --policy.device=cuda \
-  --robot.type=bi_so101_follower \
-  --robot.id=bi_robot \
-  --robot.left_arm_port=/dev/ttyACM3 \
-  --robot.right_arm_port=/dev/ttyACM2 \
-  --robot.cameras="{front: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}, back: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}" \
-  --rtc.enabled=true \
-  --rtc.execution_horizon=12 \
-  --rtc.max_guidance_weight=10.0 \
-  --duration=120 \
-  --fps=30 \
-  --device=cuda \
-  --use_torch_compile=false \
-  --policy.input_features='{"observation.state": {"type": "STATE", "shape": [12]}}' \
-  --policy.output_features='{"action": {"type": "ACTION", "shape": [12]}}'
+uv run worker
 ```
 
 Workerプロセスは、APIサーバーとUnix Socket経由で通信し、注文を処理します。
+
+引数を変更したい場合は、`robot_controller/worker_cli.py`の`_DEFAULT_ARGS`を書き換えるか、コマンドライン引数で指定してください。
+
+例：
+```bash
+uv run worker --close_box_policy.path=masato-ka/smolvla-donuts-shop-v1
+```
 
 ### 2. APIサーバーの起動
 
@@ -117,7 +90,7 @@ APIサーバーは `http://0.0.0.0:8000` で起動します。
 
 ### 3. フロントエンドの起動
 
-**注意**: フロントエンドは任意のPCで動かすことができます。
+フロントエンドは任意のPCで起動して構いません。
 
 ```bash
 cd mission2/code/doughnuts_order_chatbot
@@ -196,44 +169,12 @@ npm run dev
 
 **1. Start the persistent worker** (in a separate terminal):
 
-**Option A: Using the `worker` command (after `uv sync` on Linux)**:
 ```bash
 cd mission2/code/doughnuts_order_assistant
-uv sync  # Run this once on Linux to register the script
-uv run worker  # Uses default arguments
-# Or override specific arguments:
-uv run worker --duration=60 --device=cpu
+uv run worker
 ```
 
-**Option B: Using the module directly (works everywhere, recommended)**:
-```bash
-cd mission2/code/doughnuts_order_assistant
-uv run python -m robot_controller.worker_cli  # Uses default arguments
-# Or override specific arguments:
-uv run python -m robot_controller.worker_cli --duration=60 --device=cpu
-```
-
-**Option C: Using worker_main with full arguments**:
-```bash
-cd mission2/code/doughnuts_order_assistant
-uv run python -m robot_controller.worker_main \
-  --policy.path=masato-ka/smolvla-donuts-shop-v1 \
-  --policy.device=cuda \
-  --robot.type=bi_so101_follower \
-  --robot.id=bi_robot \
-  --robot.left_arm_port=/dev/ttyACM3 \
-  --robot.right_arm_port=/dev/ttyACM2 \
-  --robot.cameras="{front: {type: opencv, index_or_path: /dev/video4, width: 640, height: 480, fps: 30}, back: {type: opencv, index_or_path: /dev/video6, width: 640, height: 480, fps: 30}}" \
-  --rtc.enabled=true \
-  --rtc.execution_horizon=12 \
-  --rtc.max_guidance_weight=10.0 \
-  --duration=120 \
-  --fps=30 \
-  --device=cuda \
-  --use_torch_compile=false \
-  --policy.input_features='{"observation.state": {"type": "STATE", "shape": [12]}}' \
-  --policy.output_features='{"action": {"type": "ACTION", "shape": [12]}}'
-```
+引数を変更したい場合は、`robot_controller/worker_cli.py`の`_DEFAULT_ARGS`を書き換えるか、コマンドライン引数で指定してください。
 
 **2. Start the FastAPI server** (in another terminal):
 ```bash
@@ -251,4 +192,3 @@ curl -X POST 'http://0.0.0.0:8000/orders' \
 ```
 
 You should observe `PUTTING_DONUT` → `CLOSING_LID` → `DONE` after pressing physical `R`.
-
